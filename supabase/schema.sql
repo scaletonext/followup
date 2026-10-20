@@ -50,12 +50,15 @@ create table if not exists public.base_meta (
 create table if not exists public.contatos (
   salao_id       uuid not null references public.saloes(id) on delete cascade,
   cliente_id     text not null,           -- código da cliente (hash do celular)
-  st             text not null check (st in ('agendou', 'sem', 'naoatendeu', 'retornar', 'errado')),
+  st             text not null,
   dados          jsonb not null,          -- tentativas, data de retorno, motivo, observação, histórico
   atualizado_em  timestamptz not null default now(),
   atualizado_por uuid references auth.users(id) on delete set null,
   primary key (salao_id, cliente_id)
 );
+
+alter table public.contatos drop constraint if exists contatos_st_check;
+alter table public.contatos add constraint contatos_st_check check (st in ('agendou', 'mensagem', 'javeio', 'sem', 'naoatendeu', 'retornar', 'errado'));
 
 -- Ajustes do salão (nome usado nas mensagens, meta diária, oferta)
 create table if not exists public.config (

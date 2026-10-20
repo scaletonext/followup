@@ -93,10 +93,10 @@ function montarMensagem(o, cfg) {
   }
   const convite = `Inclusive, temos um horário ${quando}${comQuem}. O que acha de vir?`;
 
-  const whats = `Oi, ${nome}! Aqui é ${cfg.atendente ? 'a ' + cfg.atendente : 'a equipe'}, do ${salao} 😊 ${motivoMsg} ${convite}${combo}${oferta}${saiu}`;
+  const whats = `Oi, ${nome}! Aqui é ${cfg.atendente ? comArtigo(cfg.atendente) : 'a equipe'}, do ${salao} 😊 ${motivoMsg} ${convite}${combo}${oferta}${saiu}`;
 
   const roteiro = [
-    { t: 'Abertura', f: `Oi, ${nome}! Aqui é a ${eu}, do ${salao}. Tudo bem?` },
+    { t: 'Abertura', f: `Oi, ${nome}! Aqui é ${cfg.atendente ? comArtigo(eu) : eu}, do ${salao}. Tudo bem?` },
     { t: 'Motivo da ligação', f: motivoFala + ' (Escute com atenção. Se ela contar algum problema, vá para "Se ela disser…".)' },
     { t: 'Convite', f: convite + combo + oferta + saiu },
     { t: 'Fechamento', f: `Perfeito! Então fica ${quando === 'essa semana' ? '[dia]' : quando.replace(/^ness[ae] /, '')} às [hora]${comQuem}. Vou te mandar a confirmação no WhatsApp, tá bom? Beijo!` },

@@ -39,6 +39,8 @@ function estadoFila(o) {
     const dias = (now - s.at) / DAY;
     if (s.st === 'retornar') { const ate = isoToDay(s.ate); return ate != null && d >= ate ? 'pin' : 'oculta'; }
     if (s.st === 'errado') return 'oculta';
+    if (s.st === 'mensagem' && dias < 3) return 'oculta';      // espera 3 dias pela resposta
+    if (s.st === 'javeio' && dias < 60) return 'oculta';       // some até a planilha mostrar a visita
     if (s.st === 'agendou' && dias < 60) return 'oculta';
     if (s.st === 'sem' && dias < 90) return 'oculta';
     if (s.st === 'naoatendeu') { if ((s.tent || 1) >= 3 ? dias < 60 : dias < 3) return 'oculta'; }
@@ -130,6 +132,8 @@ function ringSvg(score) {
 function motivosLead(o, s, pinned) {
   const p = []; const r = o.trig.ratio; const dF = S.today - o.trig.ultFam;
   if (pinned) p.push(['pin', 'Pediu retorno para ' + dayToStr(isoToDay(s.ate))]);
+  if (s && s.st === 'mensagem') { const dd = Math.floor((Date.now() - s.at) / DAY); p.push(['warn', `Mensagem enviada há ${dd} dia${dd === 1 ? '' : 's'}, sem resposta`]); }
+  if (s && s.st === 'javeio') p.push(['muted', 'Marcada como "já veio", mas a visita não apareceu na planilha']);
   const pr = { prioritaria: ['pin', 'Prioridade alta'], normal: ['info', 'Prioridade média'], baixa: ['muted', 'Prioridade baixa'] }[o.faixa];
   if (pr && !pinned) p.push(pr);
   const fz = FASES[o.fase]; p.push([fz.tom, fz.nome]);
@@ -160,7 +164,7 @@ function historico(o) {
   }).join('');
 }
 const WHY = [['momento', 'Momento do ciclo', 35], ['fidelidade', 'Fidelidade', 25], ['sumida', 'Tempo sumida', 15], ['valor', 'Valor por ano', 15], ['regularidade', 'Regularidade', 10], ['bonus', 'Bônus química', 5]];
-const STNOME = { agendou: 'Agendou', sem: 'Sem interesse', naoatendeu: 'Não atendeu', retornar: 'Retornar em', errado: 'Número errado' };
+const STNOME = { agendou: 'Agendou', mensagem: 'Mensagem enviada', javeio: 'Já veio', sem: 'Sem interesse', naoatendeu: 'Não atendeu', retornar: 'Retornar em', errado: 'Número errado' };
 const MOTIVOS = ['Mudou de salão', 'Preço', 'Mudou de cidade', 'Insatisfeita com atendimento', 'Sem tempo / agenda', 'Outro'];
 
 function renderFila() {
@@ -207,6 +211,8 @@ function renderFila() {
       <div class="act-grid">
         <button class="act good" data-act="agendou" aria-expanded="${S.open === 'agendou'}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="3"/><path d="M16 2v4M8 2v4M3 10h18M9 16l2 2 4-4"/></svg>Agendou</button>
         <button class="act bad" data-act="sem" aria-expanded="${S.open === 'sem'}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M5.6 5.6l12.8 12.8"/></svg>Sem interesse</button>
+        <button class="act info" data-act="mensagem"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4 20-7z"/></svg>Mensagem enviada</button>
+        <button class="act good" data-act="javeio"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>Já veio</button>
         <button class="act warn" data-act="naoatendeu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>Não atendeu</button>
         <button class="act info" data-act="retornar" aria-expanded="${S.open === 'retornar'}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>Retornar em</button>
         <button class="act" data-act="errado"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>Número errado</button>
@@ -262,8 +268,8 @@ function renderLista() {
 }
 
 /* ===== Resultados: dashboard por dia ===== */
-const ST_ORD = ['agendou', 'retornar', 'naoatendeu', 'sem', 'errado'];
-const ST_COR = { agendou: '#5FAF85', retornar: '#D98FA3', naoatendeu: '#E3B25E', sem: '#D46A5F', errado: '#B9AAAE' };
+const ST_ORD = ['agendou', 'javeio', 'retornar', 'mensagem', 'naoatendeu', 'sem', 'errado'];
+const ST_COR = { agendou: '#5FAF85', javeio: '#9CCFB2', retornar: '#D98FA3', mensagem: '#8FA7D6', naoatendeu: '#E3B25E', sem: '#D46A5F', errado: '#B9AAAE' };
 function eventosContato() {
   const out = [];
   for (const [cid, s] of S.st) for (const h of (s.hist || [])) {
@@ -301,7 +307,7 @@ function renderResultados() {
   const head = `<div class="head"><div><div class="eyebrow">Acompanhamento</div><h1>Resultados <em>por dia</em></h1><p class="sub">${dayToStr(de)} a ${dayToStr(ate)} · tudo o que a equipe registrou na fila.</p></div></div>${demoBanner()}${filtros}`;
   if (!ev.length) return head + `<div class="card empty"><b>${todos.length ? 'Nenhum contato com esses filtros' : 'Nenhum contato registrado ainda'}</b>${todos.length ? 'Mude o período ou limpe os filtros.' : 'Assim que a equipe marcar os resultados na fila, os números aparecem aqui.'}</div>`;
 
-  const conta = arr => { const c = { total: arr.length }; ST_ORD.forEach(k => c[k] = 0); arr.forEach(e => c[e.st] = (c[e.st] || 0) + 1); c.clientes = new Set(arr.map(e => e.cid)).size; c.atendeu = c.total - c.naoatendeu - c.errado; return c; };
+  const conta = arr => { const c = { total: arr.length }; ST_ORD.forEach(k => c[k] = 0); arr.forEach(e => c[e.st] = (c[e.st] || 0) + 1); c.clientes = new Set(arr.map(e => e.cid)).size; c.atendeu = c.total - c.naoatendeu - c.errado - c.mensagem; return c; };
   const pct = (a, b) => b ? Math.round(a / b * 100) + '%' : '—';
   const T = conta(ev);
   const fat = ev.filter(e => e.st === 'agendou').reduce((sm, e) => sm + (e.tk || 0), 0);
@@ -314,7 +320,7 @@ function renderResultados() {
   const kpis = `<div class="kpis kpis6">
     <div class="kpi"><span class="l">Contatos</span><span class="v num">${T.total.toLocaleString('pt-BR')}</span><span class="h">${T.clientes.toLocaleString('pt-BR')} clientes diferentes</span></div>
     <div class="kpi"><span class="l">Agendamentos</span><span class="v num">${T.agendou}</span><span class="h">${pct(T.agendou, T.clientes)} das clientes contatadas</span></div>
-    <div class="kpi"><span class="l">Atenderam</span><span class="v num">${pct(T.atendeu, T.total)}</span><span class="h">${T.atendeu} de ${T.total} contatos</span></div>
+    <div class="kpi"><span class="l">Falaram com a gente</span><span class="v num">${pct(T.atendeu, T.total)}</span><span class="h">${T.atendeu} de ${T.total} contatos · ${T.mensagem} mensagens sem resposta</span></div>
     <div class="kpi"><span class="l">Média por dia</span><span class="v num">${media.toFixed(media < 10 ? 1 : 0).replace('.', ',')}<small> / ${meta}</small></span><div class="meter"><i style="width:${Math.min(100, media / meta * 100)}%"></i></div></div>
     <div class="kpi"><span class="l">Faturamento agendado</span><span class="v num">${fmtBRL(fat)}</span><span class="h">estimado pelo ticket do serviço</span></div>
     <div class="kpi"><span class="l">Voltaram ao salão</span><span class="v num">${voltaram}</span><span class="h">visita na base após o contato</span></div>
@@ -383,7 +389,7 @@ function renderAjustes() {
       <div><b>Nota de 0 a 100:</b> momento do ciclo (até 35), fidelidade (25), tempo sumida (15), valor por ano (15), regularidade (10) e bônus de química vencida (5).</div>
       <div><b>Uma fila só:</b> todas as clientes com serviço vencido entram, ordenadas pela nota (prioridade alta 60+, média 40 a 59, baixa abaixo de 40). Retornos combinados para o dia ficam sempre no topo. Os filtros de setor, tipo de serviço, profissional e ticket só recortam essa fila.</div>
       <div><b>Quem entra:</b> clientes com algum serviço habitual (feito 2 vezes ou mais, ou cliente nova) vencido ou perto de vencer. Ficam de fora: quem está em dia, quem sumiu há mais de 3 anos, quem só fez serviços sem ciclo (maquiagem, penteado) e quem só fez serviços uma única vez. Todas aparecem em "Lista completa › Base inteira".</div>
-      <div><b>Agendou:</b> sai da fila por 60 dias. <b>Sem interesse:</b> 90 dias. <b>Não atendeu:</b> volta em 3 dias; depois de 3 tentativas, sai por 60 dias. <b>Retornar em:</b> some até a data e aparece no topo no dia. <b>Número errado:</b> sai de vez.</div>
+      <div><b>Agendou:</b> sai da fila por 60 dias. <b>Mensagem enviada:</b> sai por 3 dias para ela responder; depois volta à fila com a etiqueta "mensagem sem resposta". <b>Já veio:</b> sai da fila até a próxima planilha mostrar a visita (se em 60 dias a visita não aparecer, ela volta). <b>Sem interesse:</b> 90 dias. <b>Não atendeu:</b> volta em 3 dias; depois de 3 tentativas, sai por 60 dias. <b>Retornar em:</b> some até a data e aparece no topo no dia. <b>Número errado:</b> sai de vez.</div>
       <div><b>Se a cliente voltar ao salão</b> depois do contato (aparece na próxima planilha), a marcação é encerrada e ela segue o ciclo normal.</div>
     </div>
   </section>`;
@@ -397,7 +403,7 @@ function bindView() {
   [['fSetor', 'setor'], ['fTipo', 'tipo'], ['fProf', 'prof'], ['fTicket', 'ticket']].forEach(([id, k]) => { const el = $('#' + id); if (el) el.onchange = () => setF(k, el.value); });
   const bl = $('#bLimpar'); if (bl) bl.onclick = () => { S.f = { setor: '', tipo: '', prof: '', ticket: '' }; S.cur = null; rebuildQueue(); render(); };
   document.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => { S.tab = b.dataset.tab; render(); });
-  document.querySelectorAll('[data-act]').forEach(b => b.onclick = () => { const a = b.dataset.act; if (a === 'naoatendeu' || a === 'errado') registrar(a, {}); else { S.open = S.open === a ? null : a; render(); } });
+  document.querySelectorAll('[data-act]').forEach(b => b.onclick = () => { const a = b.dataset.act; if (a === 'naoatendeu' || a === 'errado' || a === 'mensagem' || a === 'javeio') registrar(a, {}); else { S.open = S.open === a ? null : a; render(); } });
   document.querySelectorAll('[data-confirm]').forEach(b => b.onclick = () => {
     const a = b.dataset.confirm; const extra = { obs: ($('#fObs') || {}).value || '' };
     if (a === 'agendou') extra.agDia = $('#fAgDia').value || '';
@@ -477,7 +483,7 @@ async function registrar(st, extra) {
   const ok = await gravar(id, doc); if (!ok) { if (prev) S.st.set(id, prev); else S.st.delete(id); return; }
   rebuildQueue(); S.cur = nxt && S.queue.find(x => x.c.k === nxt.c.k) ? nxt.c.k : (S.queue[0] ? S.queue[0].c.k : null);
   render();
-  const txt = { agendou: 'Agendamento registrado', sem: 'Registrado: sem interesse', naoatendeu: `Não atendeu (tentativa ${tent} de 3)`, retornar: 'Retorno marcado para ' + dayToStr(isoToDay(extra.ate)), errado: 'Número marcado como errado' }[st];
+  const txt = { agendou: 'Agendamento registrado', sem: 'Registrado: sem interesse', naoatendeu: `Não atendeu (tentativa ${tent} de 3)`, retornar: 'Retorno marcado para ' + dayToStr(isoToDay(extra.ate)), errado: 'Número marcado como errado', mensagem: 'Mensagem enviada: volta à fila em 3 dias se não responder', javeio: 'Marcada como "já veio"' }[st];
   toast(txt + ' · ' + primeiroNome(o.c.nome), async () => { await gravar(id, prev); rebuildQueue(); S.cur = o.c.k; render(); });
 }
 
