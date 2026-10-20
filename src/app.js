@@ -3,7 +3,7 @@ const S = {
   base: null, demo: true, baseInfo: null, scored: [], byKey: new Map(),
   st: new Map(), // docId -> contato
   cfg: { salao: 'Visual Up', meta: 50, oferta: '' },
-  atendente: '', sb: null, user: null, salao: null, papel: '', membroNome: '', view: 'fila', lista: 'fila', rf: { periodo: '7', de: '', ate: '', por: '', setor: '', tipo: '' }, f: { setor: '', tipo: '', prof: '', ticket: '' }, busca: '', listLimit: 100,
+  atendente: '', sb: null, user: null, salao: null, papel: '', membroNome: '', view: 'fila', lista: 'fila', rf: { periodo: '7', de: '', ate: '', por: '', setor: '', tipo: '' }, f: { setor: '', tipo: '', prof: '', ticket: '' }, busca: '', listLimit: 100, servicos: [], pick: [], pkIdx: 0, mk: { tab: 'agendou', busca: '', ed: null }, svc: { busca: '', todos: false, lim: 80 },
   queue: [], cur: null, skipped: new Set(), tab: 'whats', open: null, lastUndo: null, today: 0,
 };
 const $ = s => document.querySelector(s);
@@ -17,6 +17,8 @@ function msToDay(ms) { const x = new Date(ms); return Math.round(Date.UTC(x.getF
 function cyrb53(str) { let h1 = 0xdeadbeef, h2 = 0x41c6ce57; for (let i = 0; i < str.length; i++) { const ch = str.charCodeAt(i); h1 = Math.imul(h1 ^ ch, 2654435761); h2 = Math.imul(h2 ^ ch, 1597334677); } h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909); h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909); return (h2 >>> 0).toString(16).padStart(8, '0') + (h1 >>> 0).toString(16).padStart(8, '0'); }
 const docId = key => 'c' + cyrb53(key);
 const fmtBRL = v => 'R$ ' + Math.round(v).toLocaleString('pt-BR');
+const fmtBRLc = v => 'R$ ' + (+v || 0).toLocaleString('pt-BR', { minimumFractionDigits: (+v || 0) % 1 ? 2 : 0, maximumFractionDigits: 2 });
+const r2 = v => Math.round((+v || 0) * 100) / 100;
 function fmtPhone(c) { if (!c) return ''; const d = c.length > 11 && c.startsWith('55') ? c.slice(2) : c; if (d.length === 11) return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`; if (d.length === 10) return `(${d.slice(0, 2)}) ${d.slice(2, 6)}-${d.slice(6)}`; return c; }
 function waNumber(c) { if (!c) return ''; return c.length >= 12 && c.startsWith('55') ? c : '55' + c; }
 
@@ -96,7 +98,7 @@ function render() {
   $('#salaoSide').textContent = S.cfg.salao || 'Salão';
   $('#baseTxt').textContent = S.demo ? 'Nenhuma base carregada' : `Base até ${dayToStr(S.base.maxDay)}`;
   $('#userTxt').textContent = S.atendente || S.membroNome || '';
-  const v = { fila: renderFila, lista: renderLista, resultados: renderResultados, ajustes: renderAjustes }[S.view];
+  const v = { fila: renderFila, lista: renderLista, marcacoes: renderMarcacoes, resultados: renderResultados, ajustes: renderAjustes }[S.view];
   $('#main').innerHTML = v();
   bindView();
 }
@@ -241,7 +243,7 @@ function renderFila() {
   return head + `<div class="work">${lead}<div class="col-r">${panel}</div></div>${svc}`;
 }
 function actForm() {
-  if (S.open === 'agendou') return `<div class="act-form"><div class="field"><label for="fAgDia">Dia agendado (opcional)</label><input class="input" type="date" id="fAgDia"></div><div class="field" style="flex:2 1 200px"><label for="fObs">Observação</label><input class="input" id="fObs" placeholder="Ex.: retoque + escova com a Carol"></div><button class="btn primary" data-confirm="agendou">Confirmar agendamento</button></div>`;
+  if (S.open === 'agendou') { const o = S.byKey.get(S.cur); return `<div class="act-form">${pickerHtml(o && o.trig ? o.trig.fam : '')}<div class="field"><label for="fAgDia">Dia agendado (opcional)</label><input class="input" type="date" id="fAgDia"></div><div class="field" style="flex:2 1 200px"><label for="fObs">Observação</label><input class="input" id="fObs" placeholder="Ex.: com a Carol, às 15h"></div><button class="btn primary" data-confirm="agendou">Confirmar agendamento</button></div>`; }
   if (S.open === 'sem') return `<div class="act-form"><div class="field"><label for="fMotivo">Motivo</label><select class="input" id="fMotivo">${MOTIVOS.map(m => `<option>${m}</option>`).join('')}</select></div><div class="field" style="flex:2 1 200px"><label for="fObs">Observação</label><input class="input" id="fObs" placeholder="O que ela contou"></div><button class="btn primary" data-confirm="sem">Registrar</button></div>`;
   if (S.open === 'retornar') return `<div class="act-form"><div class="field"><label for="fAte">Ligar de novo em</label><input class="input" type="date" id="fAte" min="${dayToIso(S.today + 1)}" value="${dayToIso(S.today + 7)}"></div><div class="field" style="flex:2 1 200px"><label for="fObs">Observação</label><input class="input" id="fObs" placeholder="Ex.: pediu para ligar depois do dia 20"></div><button class="btn primary" data-confirm="retornar">Agendar retorno</button></div>`;
   return '';
@@ -265,6 +267,207 @@ function renderLista() {
   ${rows.map((o, i) => `<tr data-open="${esc(o.c.k)}"><td class="r num" style="color:var(--fg3)">${i + 1}</td><td><b>${esc(o.c.nome)}</b></td><td class="r">${o.faixa === 'fora' ? '<span style="color:var(--fg3)">fora</span>' : `<span class="score-chip num ${o.score >= 60 ? 'hi' : ''}">${o.score}</span>`}</td><td>${o.trig ? esc(FAMMETA[o.trig.fam].nome) : '<span style="color:var(--fg3)">—</span>'}</td><td class="r num">${o.trig ? '+' + o.trig.atraso + ' d' : '—'}</td><td>${esc(FASES[o.fase].nome)}</td><td class="r num">${tempo(o.rec)}</td><td class="r num">${o.n}</td><td>${o.prof ? esc(primeiroNome(o.prof)) : '—'}</td><td class="r num">${fmtBRL(o.ticket)}</td><td>${stCell(o)}</td></tr>`).join('')}
   </tbody></table></div>
   ${total > S.listLimit ? `<div style="text-align:center"><button class="btn" id="bMore">Mostrar mais (${(total - S.listLimit).toLocaleString('pt-BR')} restantes)</button></div>` : ''}`;
+}
+
+/* ===== Serviços: busca incremental para o agendamento ===== */
+function prepServicos(lista) {
+  S.servicos = lista.map(x => ({ ...x, preco: +x.preco || 0, _n: norm(x.nome + ' ' + (FAMMETA[x.fam] ? FAMMETA[x.fam].nome : '')) }))
+    .sort((a, b) => (b.ativo - a.ativo) || (b.vezes - a.vezes) || a.nome.localeCompare(b.nome));
+}
+function buscaServicos(q) {
+  const t = norm(q).split(' ').filter(Boolean); if (!t.length) return [];
+  const ja = new Set(S.pick.map(x => norm(x.n)));
+  return S.servicos.filter(s => !ja.has(norm(s.nome)) && t.every(w => s._n.includes(w)))
+    .sort((a, b) => (b.ativo - a.ativo) || (norm(b.nome).startsWith(t[0]) - norm(a.nome).startsWith(t[0])) || (b.vezes - a.vezes)).slice(0, 8);
+}
+function vendaDoPicker() {
+  const servicos = S.pick.map(x => ({ n: x.n, p: r2(x.p) }));
+  return servicos.length ? { servicos, valor: r2(servicos.reduce((s, x) => s + x.p, 0)) } : {};
+}
+function pickerHtml(famSug) {
+  const sug = famSug ? S.servicos.filter(s => s.fam === famSug && s.ativo && !S.pick.some(p => norm(p.n) === norm(s.nome))).slice(0, 4) : [];
+  return `<div class="field pk-field"><label for="pkIn">Serviços agendados</label>
+    <div class="pk-box"><input class="input" id="pkIn" placeholder="${S.servicos.length ? 'Digite para buscar: escova, pé e mão, luzes…' : 'Digite o nome do serviço'}" autocomplete="off" role="combobox" aria-expanded="false" aria-controls="pkList" aria-autocomplete="list"><div class="pk-list" id="pkList" role="listbox" hidden></div></div>
+    ${sug.length ? `<div class="pk-sug"><span>Sugestões:</span>${sug.map(s => `<button type="button" class="chip" data-pkadd="${esc(s.nome)}">${esc(s.nome)} <span class="c num">${fmtBRLc(s.preco)}</span></button>`).join('')}</div>` : ''}
+    <div class="pk-sel" id="pkSel">${pickSelHtml()}</div></div>`;
+}
+function pickSelHtml() {
+  if (!S.pick.length) return '<span class="pk-vazio">Nenhum serviço escolhido. Sem serviço, o dashboard usa o ticket médio como estimativa.</span>';
+  const tot = S.pick.reduce((s, x) => s + (+x.p || 0), 0);
+  return S.pick.map((x, i) => `<div class="pk-item"><span>${esc(x.n)}</span><label class="pk-preco">R$<input class="input num" type="number" min="0" step="0.01" inputmode="decimal" data-pkp="${i}" value="${x.p}" aria-label="Preço de ${esc(x.n)}"></label><button type="button" class="pk-x" data-pkx="${i}" aria-label="Tirar ${esc(x.n)}">×</button></div>`).join('')
+    + `<div class="pk-tot"><span>Valor da venda</span><b class="num" id="pkTot">${fmtBRLc(tot)}</b></div>`;
+}
+function bindPicker() {
+  const inp = $('#pkIn'), list = $('#pkList'), sel = $('#pkSel'); if (!inp) return;
+  let achados = [];
+  const add = (n, p) => { S.pick.push({ n, p: r2(p) }); inp.value = ''; fechar(); sel.innerHTML = pickSelHtml(); const sg = document.querySelector(`.pk-sug [data-pkadd="${CSS.escape(n)}"]`); if (sg) sg.remove(); inp.focus(); };
+  const fechar = () => { list.hidden = true; inp.setAttribute('aria-expanded', 'false'); };
+  const desenhar = () => {
+    const q = inp.value.trim(); achados = buscaServicos(q);
+    if (!q) { fechar(); return; }
+    S.pkIdx = Math.min(S.pkIdx, achados.length);
+    list.innerHTML = achados.map((s, i) => `<div class="pk-op" role="option" data-i="${i}" aria-selected="${i === S.pkIdx}"><div><b>${esc(s.nome)}</b><small>${esc(FAMMETA[s.fam] ? SETORES[FAMMETA[s.fam].g] || 'Outros' : 'Outros')} · ${s.ativo ? s.vezes + ' vendas no último ano' : 'sem venda no último ano'}</small></div><span class="num">${fmtBRLc(s.preco)}</span></div>`).join('')
+      + `<div class="pk-op avulso" role="option" data-i="${achados.length}" aria-selected="${S.pkIdx === achados.length}"><div><b>Usar "${esc(q)}"</b><small>serviço fora da lista; digite o preço depois</small></div></div>`;
+    list.hidden = false; inp.setAttribute('aria-expanded', 'true');
+  };
+  const escolher = i => { if (i < achados.length) add(achados[i].nome, achados[i].preco); else if (inp.value.trim()) add(inp.value.trim().slice(0, 80), 0); };
+  inp.oninput = () => { S.pkIdx = 0; desenhar(); };
+  inp.onfocus = () => { if (inp.value.trim()) desenhar(); };
+  inp.onblur = () => setTimeout(fechar, 150);
+  inp.onkeydown = e => {
+    if (e.key === 'ArrowDown') { e.preventDefault(); S.pkIdx = Math.min(achados.length, S.pkIdx + 1); desenhar(); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); S.pkIdx = Math.max(0, S.pkIdx - 1); desenhar(); }
+    else if (e.key === 'Enter') { e.preventDefault(); if (!list.hidden) escolher(S.pkIdx); }
+    else if (e.key === 'Escape') fechar();
+    else if (e.key === 'Backspace' && !inp.value && S.pick.length) { S.pick.pop(); sel.innerHTML = pickSelHtml(); }
+  };
+  list.onmousedown = e => { e.preventDefault(); const op = e.target.closest('.pk-op'); if (op) escolher(+op.dataset.i); };
+  document.querySelectorAll('[data-pkadd]').forEach(b => b.onclick = () => { const s = S.servicos.find(x => x.nome === b.dataset.pkadd); if (s) add(s.nome, s.preco); });
+  sel.oninput = e => { const i = e.target.dataset.pkp; if (i == null) return; S.pick[+i].p = r2(e.target.value); $('#pkTot').textContent = fmtBRLc(S.pick.reduce((s, x) => s + (+x.p || 0), 0)); };
+  sel.onclick = e => { const b = e.target.closest('[data-pkx]'); if (!b) return; S.pick.splice(+b.dataset.pkx, 1); sel.innerHTML = pickSelHtml(); };
+}
+
+/* ===== Marcações: cada lead por situação, com edição individual ===== */
+const MK_ORD = ['agendou', 'mensagem', 'errado', 'retornar', 'naoatendeu', 'sem', 'javeio'];
+const MK_NOME = { agendou: 'Agendados', mensagem: 'Mensagens enviadas', errado: 'Número errado', retornar: 'Retornar em', naoatendeu: 'Não atendeu', sem: 'Sem interesse', javeio: 'Já veio' };
+function linhasMarcacao() {
+  const out = [];
+  for (const [id, s] of S.st) {
+    const o = S.byDoc && S.byDoc.get(id);
+    const voltou = o && o.ult > msToDay(s.at) ? o.ult : null;
+    out.push({ id, s, o, nome: o ? o.c.nome : 'Cliente fora da base atual', cel: o ? o.c.cel : '', voltou });
+  }
+  return out;
+}
+function detalheMarcacao(s) {
+  if (s.st === 'agendou') return (s.servicos && s.servicos.length ? `<b>${esc(s.servicos.map(x => x.n).join(' + '))}</b><small class="num">${fmtBRLc(s.valor || 0)}${s.agDia ? ' · dia ' + dayToStr(isoToDay(s.agDia)) : ''}</small>` : `<span class="pill warn">Sem serviço informado</span>${s.agDia ? `<small class="num">dia ${dayToStr(isoToDay(s.agDia))}</small>` : ''}`);
+  if (s.st === 'retornar') return `<b class="num">Ligar em ${s.ate ? dayToStr(isoToDay(s.ate)) : '—'}</b>`;
+  if (s.st === 'sem') return `<b>${esc(s.motivo || 'Sem motivo')}</b>`;
+  if (s.st === 'naoatendeu') return `<b class="num">${s.tent || 1} de 3 tentativas</b>`;
+  if (s.st === 'mensagem') { const d = Math.floor((Date.now() - s.at) / DAY); return `<b class="num">há ${d} dia${d === 1 ? '' : 's'}</b><small>${d >= 3 ? 'já voltou para a fila' : 'volta à fila em ' + (3 - d) + ' dia' + (3 - d === 1 ? '' : 's')}</small>`; }
+  return '<span style="color:var(--fg3)">—</span>';
+}
+function edicaoHtml(l) {
+  const ed = S.mk.ed, s = l.s, st = ed.st;
+  const mudou = st !== s.st;
+  const campos = st === 'agendou' ? `${pickerHtml(l.o && l.o.trig ? l.o.trig.fam : '')}<div class="field"><label for="eAgDia">Dia agendado</label><input class="input" type="date" id="eAgDia" value="${esc(ed.agDia || '')}"></div>`
+    : st === 'retornar' ? `<div class="field"><label for="eAte">Ligar de novo em</label><input class="input" type="date" id="eAte" value="${esc(ed.ate || dayToIso(S.today + 7))}"></div>`
+    : st === 'sem' ? `<div class="field"><label for="eMotivo">Motivo</label><select class="input" id="eMotivo">${MOTIVOS.map(m => `<option ${m === ed.motivo ? 'selected' : ''}>${m}</option>`).join('')}</select></div>` : '';
+  return `<tr class="ed-row"><td colspan="6"><div class="act-form ed-form">
+    <div class="field"><label for="eSt">Situação</label><select class="input" id="eSt">${MK_ORD.map(k => `<option value="${k}" ${k === st ? 'selected' : ''}>${STNOME[k]}</option>`).join('')}</select></div>
+    ${campos}
+    <div class="field" style="flex:2 1 220px"><label for="eObs">Observação</label><input class="input" id="eObs" value="${esc(ed.obs || '')}"></div>
+    ${mudou ? `<div class="ed-modo" role="radiogroup" aria-label="Tipo de mudança">
+      <label><input type="radio" name="eModo" value="novo" ${ed.modo !== 'corrigir' ? 'checked' : ''}> <span><b>Novidade</b> · ela respondeu, remarcou ou mudou de ideia (conta hoje nos resultados)</span></label>
+      <label><input type="radio" name="eModo" value="corrigir" ${ed.modo === 'corrigir' ? 'checked' : ''}> <span><b>Correção</b> · a marcação foi feita errada (troca o registro de ${new Date(s.at).toLocaleDateString('pt-BR')})</span></label></div>` : ''}
+    <div class="ed-bts"><button class="btn primary" id="eSalvar">Salvar</button><button class="btn ghost" id="eCancelar">Cancelar</button><span class="spacer"></span>${l.o && l.o.trig ? '<button class="btn ghost" id="eFila">Abrir na fila</button>' : ''}<button class="btn ghost danger" id="eRemover">Tirar marcação</button></div>
+  </div></td></tr>`;
+}
+function renderMarcacoes() {
+  const todas = linhasMarcacao(); const mk = S.mk;
+  const cnt = {}; MK_ORD.forEach(k => cnt[k] = 0); todas.forEach(l => cnt[l.s.st] = (cnt[l.s.st] || 0) + 1);
+  const q = norm(mk.busca), qd = mk.busca.replace(/\D/g, '');
+  let rows = todas.filter(l => l.s.st === mk.tab && (!q || norm(l.nome).includes(q) || (qd && (l.cel || '').includes(qd))));
+  rows.sort((a, b) => mk.tab === 'retornar' ? (isoToDay(a.s.ate) || 0) - (isoToDay(b.s.ate) || 0) : b.s.at - a.s.at);
+  const resumo = mk.tab === 'agendou' ? (() => { const com = rows.filter(l => l.s.servicos && l.s.servicos.length); const v = com.reduce((s, l) => s + (+l.s.valor || 0), 0); return `<p class="sub" style="margin:0 0 10px">${rows.length} agendamento${rows.length === 1 ? '' : 's'} · <b>${fmtBRLc(v)}</b> em serviços informados${rows.length - com.length ? ` · ${rows.length - com.length} sem serviço (clique em Editar para completar)` : ''}</p>`; })() : '';
+  const head = `<div class="head"><div><div class="eyebrow">Acompanhamento</div><h1>Marcações <em>por situação</em></h1><p class="sub">Todas as clientes já marcadas. Abra uma linha para mudar a situação, completar os serviços do agendamento ou tirar a marcação.</p></div>
+    <input class="input" id="mBusca" style="max-width:280px" placeholder="Buscar por nome ou celular" value="${esc(mk.busca)}" aria-label="Buscar marcação"></div>
+    <div class="filters" role="tablist" aria-label="Situação">${MK_ORD.map(k => `<button class="chip" role="tab" data-mktab="${k}" aria-pressed="${mk.tab === k}" aria-selected="${mk.tab === k}">${MK_NOME[k]}<span class="c num">${cnt[k] || 0}</span></button>`).join('')}</div>`;
+  if (!rows.length) return head + `<div class="card empty"><b>${mk.busca ? 'Ninguém encontrado' : 'Nenhuma cliente em "' + MK_NOME[mk.tab] + '"'}</b>${mk.busca ? 'Confira o nome ou limpe a busca.' : 'Quando a equipe marcar esse resultado na fila, a cliente aparece aqui.'}</div>`;
+  return head + resumo + `<div class="table-wrap"><table class="mk"><thead><tr><th>Cliente</th><th>Marcado em</th><th>${mk.tab === 'agendou' ? 'Serviços e valor' : 'Detalhe'}</th><th>Observação</th><th>Quem marcou</th><th></th></tr></thead><tbody>
+    ${rows.map(l => { const ult = (l.s.hist || [])[l.s.hist.length - 1] || {}; const aberto = mk.ed && mk.ed.id === l.id;
+      return `<tr class="${aberto ? 'aberto' : ''}"><td><b>${esc(l.nome)}</b><small class="num">${l.cel ? esc(fmtPhone(l.cel)) : 'sem celular'}</small>${l.voltou ? `<span class="pill good" style="margin-top:4px;display:inline-block">Voltou ao salão em ${dayToStr(l.voltou).slice(0, 5)}</span>` : ''}</td>
+        <td class="num">${new Date(l.s.at).toLocaleDateString('pt-BR')}${ult.ed ? '<small>corrigido</small>' : ''}</td><td>${detalheMarcacao(l.s)}</td><td class="obs">${esc(l.s.obs || '')}</td><td>${esc(ult.por || '—')}</td>
+        <td class="r"><button class="btn ${aberto ? 'primary' : ''}" data-mked="${esc(l.id)}" aria-expanded="${aberto}">${aberto ? 'Fechar' : 'Editar'}</button></td></tr>${aberto ? edicaoHtml(l) : ''}`; }).join('')}
+  </tbody></table></div>`;
+}
+function bindMarcacoes() {
+  document.querySelectorAll('[data-mktab]').forEach(b => b.onclick = () => { S.mk.tab = b.dataset.mktab; S.mk.ed = null; render(); });
+  const mb = $('#mBusca'); if (mb) mb.oninput = () => { S.mk.busca = mb.value; const pos = mb.selectionStart; render(); const n = $('#mBusca'); n.focus(); n.setSelectionRange(pos, pos); };
+  document.querySelectorAll('[data-mked]').forEach(b => b.onclick = () => {
+    const id = b.dataset.mked;
+    if (S.mk.ed && S.mk.ed.id === id) { S.mk.ed = null; render(); return; }
+    const s = S.st.get(id); if (!s) return;
+    S.mk.ed = { id, st: s.st, obs: s.obs || '', agDia: s.agDia || '', ate: s.ate || '', motivo: s.motivo || '', modo: 'novo' };
+    S.pick = (s.servicos || []).map(x => ({ n: x.n, p: x.p })); render();
+  });
+  const ed = S.mk.ed; if (!ed) return;
+  const lerCampos = () => { ed.obs = ($('#eObs') || {}).value || ''; if ($('#eAgDia')) ed.agDia = $('#eAgDia').value; if ($('#eAte')) ed.ate = $('#eAte').value; if ($('#eMotivo')) ed.motivo = $('#eMotivo').value; const m = document.querySelector('[name="eModo"]:checked'); if (m) ed.modo = m.value; };
+  const es = $('#eSt'); if (es) es.onchange = () => { lerCampos(); ed.st = es.value; render(); };
+  const ec = $('#eCancelar'); if (ec) ec.onclick = () => { S.mk.ed = null; render(); };
+  const ef = $('#eFila'); if (ef) ef.onclick = () => { const o = S.byDoc.get(ed.id); S.mk.ed = null; if (o) abrirCliente(o.c.k); };
+  const er = $('#eRemover'); if (er) er.onclick = async () => {
+    const id = ed.id, prev = S.st.get(id); S.mk.ed = null;
+    if (!(await gravar(id, null))) { S.st.set(id, prev); return; }
+    rebuildQueue(); render();
+    toast('Marcação retirada: a cliente segue o ciclo normal da fila', async () => { await gravar(id, prev); rebuildQueue(); render(); });
+  };
+  const sv = $('#eSalvar'); if (sv) sv.onclick = async () => {
+    lerCampos(); const id = ed.id, s = S.st.get(id), o = S.byDoc.get(id) || null;
+    if (ed.st === 'retornar' && !isoToDay(ed.ate)) { toast('Escolha a data para ligar de novo.'); return; }
+    const extra = { obs: ed.obs, ...(ed.st === 'agendou' ? { agDia: ed.agDia, ...vendaDoPicker() } : {}), ...(ed.st === 'retornar' ? { ate: ed.ate } : {}), ...(ed.st === 'sem' ? { motivo: ed.motivo } : {}) };
+    if (ed.st === 'agendou' && !extra.servicos) extra.servicos = [], extra.valor = 0;
+    const modo = ed.st === s.st ? 'corrigir' : ed.modo;
+    const { prev, doc } = montarDoc(o, id, ed.st, extra, modo);
+    if (ed.st === 'agendou' && !doc.servicos.length) { delete doc.servicos; delete doc.valor; const h = doc.hist[doc.hist.length - 1]; delete h.servicos; delete h.valor; }
+    S.mk.ed = null; S.pick = [];
+    if (!(await gravar(id, doc))) { S.st.set(id, prev); render(); return; }
+    rebuildQueue(); if (ed.st !== S.mk.tab) S.mk.tab = ed.st; render();
+    toast((ed.st === s.st ? 'Marcação atualizada' : (modo === 'corrigir' ? 'Corrigido para ' : 'Mudou para ') + STNOME[ed.st]) + (o ? ' · ' + primeiroNome(o.c.nome) : ''), async () => { await gravar(id, prev); rebuildQueue(); render(); });
+  };
+  bindPicker();
+}
+
+/* ===== Catálogo de serviços em "Base e ajustes" ===== */
+function catalogoHtml() {
+  const adm = S.papel === 'admin', c = S.svc, q = norm(c.busca);
+  let rows = S.servicos.filter(s => (c.todos || s.ativo) && (!q || s._n.includes(q)));
+  if (q) rows.sort((x, y) => norm(y.nome).includes(q) - norm(x.nome).includes(q));
+  const total = rows.length; rows = rows.slice(0, c.lim);
+  return `<section class="card"><div class="card-head"><div><h2>Serviços e preços</h2><p class="sub">${S.servicos.length ? `${S.servicos.filter(s => s.ativo).length} serviços vendidos no último ano. Preço sugerido = valor mais comum cobrado nos últimos 12 meses da planilha. ${adm ? 'Ajuste o preço quando precisar: o valor que você digitar não é trocado pelas próximas planilhas.' : 'Só administradores mudam os preços.'}` : 'O catálogo aparece depois que um administrador carregar a planilha.'}</p></div></div>
+    <div class="filters" style="margin-top:12px"><input class="input" id="sBusca" style="max-width:280px" placeholder="Buscar serviço" value="${esc(c.busca)}" aria-label="Buscar serviço"><button class="chip" id="sTodos" aria-pressed="${c.todos}">Mostrar também os sem venda no último ano</button></div>
+    ${adm ? `<div class="act-form" style="margin-top:10px"><div class="field" style="flex:2 1 220px"><label for="sNovoNome">Novo serviço</label><input class="input" id="sNovoNome" placeholder="Nome do serviço"></div><div class="field"><label for="sNovoPreco">Preço (R$)</label><input class="input num" id="sNovoPreco" type="number" min="0" step="0.01"></div><button class="btn" id="sAdd">Adicionar</button></div>` : ''}
+    <div class="svc-wrap" style="margin-top:12px"><table class="svc"><thead><tr><th>Serviço</th><th>Setor · tipo</th><th class="r">Vendas no último ano</th><th class="r">Preço</th>${adm ? '<th>Na busca</th>' : ''}</tr></thead><tbody>
+    ${rows.map(s => { const fm = FAMMETA[s.fam]; return `<tr><td><b>${esc(s.nome)}</b>${s.editado ? '<small>preço ajustado à mão</small>' : ''}</td><td>${fm ? esc((SETORES[fm.g] || 'Outros') + ' · ' + fm.nome) : 'Outros'}</td><td class="r num">${s.vezes || '—'}</td>
+      <td class="r">${adm ? `<input class="input num preco-in" type="number" min="0" step="0.01" data-spreco="${esc(s.nome)}" value="${s.preco}" aria-label="Preço de ${esc(s.nome)}">` : `<b class="num">${fmtBRLc(s.preco)}</b>`}</td>${adm ? `<td><input type="checkbox" data-sativo="${esc(s.nome)}" ${s.ativo ? 'checked' : ''} aria-label="Mostrar ${esc(s.nome)} na busca do agendamento"></td>` : ''}</tr>`; }).join('')}
+    </tbody></table></div>
+    ${total > c.lim ? `<div style="text-align:center;margin-top:10px"><button class="btn" id="sMore">Mostrar mais (${total - c.lim} restantes)</button></div>` : ''}
+  </section>`;
+}
+async function salvarServico(nome, campos) {
+  const s = S.servicos.find(x => x.nome === nome);
+  const linha = { salao_id: S.salao, nome, fam: s ? s.fam : famOf(nome, ''), preco: s ? s.preco : 0, vezes: s ? s.vezes : 0, ativo: s ? s.ativo : true, editado: true, atualizado_em: new Date().toISOString(), ...campos };
+  const { error } = await S.sb.from('servicos').upsert(linha);
+  if (error) { toast('Não foi possível salvar o serviço: ' + traduzErro(error)); return false; }
+  const resto = S.servicos.filter(x => x.nome !== nome); prepServicos([...resto, linha]); return true;
+}
+function bindCatalogo() {
+  const sb = $('#sBusca'); if (sb) sb.oninput = () => { S.svc.busca = sb.value; S.svc.lim = 80; const pos = sb.selectionStart; render(); const n = $('#sBusca'); n.focus(); n.setSelectionRange(pos, pos); };
+  const st = $('#sTodos'); if (st) st.onclick = () => { S.svc.todos = !S.svc.todos; render(); };
+  const sm = $('#sMore'); if (sm) sm.onclick = () => { S.svc.lim += 200; render(); };
+  document.querySelectorAll('[data-spreco]').forEach(i => i.onchange = async () => { const v = r2(i.value); if (v < 0) return; if (await salvarServico(i.dataset.spreco, { preco: v })) toast('Preço salvo: ' + i.dataset.spreco + ' · ' + fmtBRLc(v)); });
+  document.querySelectorAll('[data-sativo]').forEach(i => i.onchange = async () => { if (await salvarServico(i.dataset.sativo, { ativo: i.checked })) toast(i.checked ? 'Serviço aparece na busca' : 'Serviço escondido da busca (continua no catálogo)'); });
+  const sa = $('#sAdd'); if (sa) sa.onclick = async () => {
+    const nome = $('#sNovoNome').value.replace(/\s+/g, ' ').trim().slice(0, 80), preco = r2($('#sNovoPreco').value);
+    if (!nome) { toast('Digite o nome do serviço.'); return; }
+    if (S.servicos.some(x => norm(x.nome) === norm(nome))) { toast('Esse serviço já está no catálogo.'); return; }
+    if (await salvarServico(nome, { preco, ativo: true, vezes: 0 })) { S.svc.busca = nome; render(); toast('Serviço adicionado'); }
+  };
+}
+async function sincronizarCatalogo(lista) {
+  const editados = new Set(S.servicos.filter(s => s.editado).map(s => norm(s.nome)));
+  const agora = new Date().toISOString();
+  const livres = lista.filter(s => !editados.has(norm(s.nome))).map(s => ({ salao_id: S.salao, nome: s.nome, fam: s.fam, preco: s.preco, vezes: s.vezes, ativo: s.ativo, atualizado_em: agora }));
+  const fixos = lista.filter(s => editados.has(norm(s.nome))).map(s => ({ salao_id: S.salao, nome: S.servicos.find(x => norm(x.nome) === norm(s.nome)).nome, fam: s.fam, vezes: s.vezes, atualizado_em: agora }));
+  for (const grupo of [livres, fixos]) for (let i = 0; i < grupo.length; i += 400) {
+    const { error } = await S.sb.from('servicos').upsert(grupo.slice(i, i + 400));
+    if (error) throw new Error('Falha ao atualizar o catálogo de serviços: ' + traduzErro(error));
+  }
+  await carregarServicos();
+}
+async function carregarServicos() {
+  try { prepServicos(await lerTudo('servicos', 'nome,fam,preco,vezes,ativo,editado')); }
+  catch (e) { S.servicos = S.servicos || []; }
 }
 
 /* ===== Resultados: dashboard por dia ===== */
@@ -310,7 +513,11 @@ function renderResultados() {
   const conta = arr => { const c = { total: arr.length }; ST_ORD.forEach(k => c[k] = 0); arr.forEach(e => c[e.st] = (c[e.st] || 0) + 1); c.clientes = new Set(arr.map(e => e.cid)).size; c.atendeu = c.total - c.naoatendeu - c.errado - c.mensagem; return c; };
   const pct = (a, b) => b ? Math.round(a / b * 100) + '%' : '—';
   const T = conta(ev);
-  const fat = ev.filter(e => e.st === 'agendou').reduce((sm, e) => sm + (e.tk || 0), 0);
+  const ags = ev.filter(e => e.st === 'agendou');
+  const comValor = ags.filter(e => e.valor != null);
+  const vendido = comValor.reduce((sm, e) => sm + (+e.valor || 0), 0);
+  const semValor = ags.filter(e => e.valor == null), estimado = semValor.reduce((sm, e) => sm + (e.tk || 0), 0);
+  const ticketAg = comValor.length ? vendido / comValor.length : 0;
   const nDias = ate - de + 1, diasAtivos = new Set(ev.map(e => e.dia)).size;
   const media = diasAtivos ? T.total / diasAtivos : 0, meta = +S.cfg.meta || 50;
   let voltaram = 0; const vistos = new Set();
@@ -322,7 +529,7 @@ function renderResultados() {
     <div class="kpi"><span class="l">Agendamentos</span><span class="v num">${T.agendou}</span><span class="h">${pct(T.agendou, T.clientes)} das clientes contatadas</span></div>
     <div class="kpi"><span class="l">Falaram com a gente</span><span class="v num">${pct(T.atendeu, T.total)}</span><span class="h">${T.atendeu} de ${T.total} contatos · ${T.mensagem} mensagens sem resposta</span></div>
     <div class="kpi"><span class="l">Média por dia</span><span class="v num">${media.toFixed(media < 10 ? 1 : 0).replace('.', ',')}<small> / ${meta}</small></span><div class="meter"><i style="width:${Math.min(100, media / meta * 100)}%"></i></div></div>
-    <div class="kpi"><span class="l">Faturamento agendado</span><span class="v num">${fmtBRL(fat)}</span><span class="h">estimado pelo ticket do serviço</span></div>
+    <div class="kpi"><span class="l">Vendas agendadas</span><span class="v num">${fmtBRL(vendido)}</span><span class="h">${comValor.length ? `${comValor.length} agendamento${comValor.length > 1 ? 's' : ''} com serviços · ticket ${fmtBRL(ticketAg)}` : 'nenhum agendamento com serviços informados'}${semValor.length ? ` · + ${fmtBRL(estimado)} estimado em ${semValor.length} sem serviço` : ''}</span></div>
     <div class="kpi"><span class="l">Voltaram ao salão</span><span class="v num">${voltaram}</span><span class="h">visita na base após o contato</span></div>
   </div>`;
 
@@ -330,7 +537,7 @@ function renderResultados() {
   const ini = Math.max(de, ate - 61);
   const dias = []; for (let d = ini; d <= ate; d++) dias.push(d);
   const porDia = new Map(dias.map(d => [d, conta([])]));
-  ev.forEach(e => { const c = porDia.get(e.dia); if (c) { c.total++; c[e.st]++; } });
+  ev.forEach(e => { const c = porDia.get(e.dia); if (c) { c.total++; c[e.st]++; if (e.st === 'agendou' && e.valor != null) c.vendas = (c.vendas || 0) + (+e.valor || 0); } });
   const mx = Math.max(1, ...[...porDia.values()].map(c => c.total));
   const passo = dias.length > 31 ? 7 : dias.length > 14 ? 2 : 1;
   const grafico = `<section class="card"><div class="card-head"><div><h2>Contatos por dia</h2><p class="sub">${dias.length < nDias ? 'Últimos 62 dias do período' : 'Cada barra é um dia, dividida pelo resultado'}</p></div>
@@ -341,9 +548,9 @@ function renderResultados() {
   // tabela por dia
   const linhasDia = [...porDia.entries()].filter(([, c]) => c.total).sort((a, b) => b[0] - a[0]);
   const tabelaDia = `<section class="card"><h2>Dia a dia</h2><p class="sub">Só os dias com contato</p>
-    <div class="svc-wrap" style="margin-top:12px"><table class="svc"><thead><tr><th>Dia</th><th class="r">Contatos</th>${ST_ORD.map(k => `<th class="r">${STNOME[k]}</th>`).join('')}<th class="r">Taxa de agend.</th></tr></thead><tbody>
-    ${linhasDia.map(([d, c]) => `<tr><td><b>${DIAS[(d + 4) % 7].slice(0, 3)}, ${dayToStr(d).slice(0, 5)}</b></td><td class="r num">${c.total}</td>${ST_ORD.map(k => `<td class="r num">${c[k] || '—'}</td>`).join('')}<td class="r num">${pct(c.agendou, c.total)}</td></tr>`).join('')}
-    <tr class="tot"><td><b>Total</b></td><td class="r num"><b>${T.total}</b></td>${ST_ORD.map(k => `<td class="r num"><b>${T[k] || '—'}</b></td>`).join('')}<td class="r num"><b>${pct(T.agendou, T.total)}</b></td></tr>
+    <div class="svc-wrap" style="margin-top:12px"><table class="svc"><thead><tr><th>Dia</th><th class="r">Contatos</th>${ST_ORD.map(k => `<th class="r">${STNOME[k]}</th>`).join('')}<th class="r">Taxa de agend.</th><th class="r">Vendas</th></tr></thead><tbody>
+    ${linhasDia.map(([d, c]) => `<tr><td><b>${DIAS[(d + 4) % 7].slice(0, 3)}, ${dayToStr(d).slice(0, 5)}</b></td><td class="r num">${c.total}</td>${ST_ORD.map(k => `<td class="r num">${c[k] || '—'}</td>`).join('')}<td class="r num">${pct(c.agendou, c.total)}</td><td class="r num">${c.vendas ? fmtBRL(c.vendas) : '—'}</td></tr>`).join('')}
+    <tr class="tot"><td><b>Total</b></td><td class="r num"><b>${T.total}</b></td>${ST_ORD.map(k => `<td class="r num"><b>${T[k] || '—'}</b></td>`).join('')}<td class="r num"><b>${pct(T.agendou, T.total)}</b></td><td class="r num"><b>${vendido ? fmtBRL(vendido) : '—'}</b></td></tr>
     </tbody></table></div></section>`;
 
   // quebras: atendente, setor, faixa de nota, motivos
@@ -363,8 +570,11 @@ function renderResultados() {
     <section class="card"><h2>Por faixa de nota</h2><p class="sub">Confere se a nota acerta: notas altas devem agendar mais</p>${legBar}<div style="margin-top:12px">${barras(porNota, k => 'Nota ' + k)}</div></section>
     <section class="card"><h2>Por que não quiseram</h2><p class="sub">Motivos de "sem interesse"</p><div class="bars" style="margin-top:14px">${Object.keys(mot).length ? MOTIVOS.filter(m => mot[m]).map(m => `<div class="bar"><span>${esc(m)}</span><div class="track"><i style="width:${mot[m] / motM * 100}%"></i></div><b class="num">${mot[m]}</b></div>`).join('') : '<span class="sub">Nenhum registro no período.</span>'}</div></section>
   </div>`;
+  const porSvc = new Map(); comValor.forEach(e => (e.servicos || []).forEach(x => { const a = porSvc.get(x.n) || { n: 0, v: 0 }; a.n++; a.v += +x.p || 0; porSvc.set(x.n, a); }));
+  const topSvc = [...porSvc.entries()].sort((a, b) => b[1].v - a[1].v).slice(0, 10); const mxSvc = Math.max(1, ...topSvc.map(([, a]) => a.v));
+  const cardSvc = topSvc.length ? `<section class="card"><h2>Serviços agendados</h2><p class="sub">Valor real somado dos serviços escolhidos no agendamento</p><div class="bars" style="margin-top:14px">${topSvc.map(([n, a]) => `<div class="bar"><span>${esc(n)}</span><div class="track"><i style="width:${a.v / mxSvc * 100}%"></i></div><b class="num">${fmtBRL(a.v)}<small> · ${a.n}×</small></b></div>`).join('')}</div></section>` : '';
   const alerta = insat ? `<div class="banner warn"><b>${insat} cliente${insat > 1 ? 's disseram' : ' disse'} que ficou insatisfeita com o atendimento no período.</b><span>Vale a gestão ligar pessoalmente.</span></div>` : '';
-  return head + alerta + kpis + grafico + quebras + tabelaDia + '<div class="tt" id="tt" hidden></div>';
+  return head + alerta + kpis + grafico + quebras + cardSvc + tabelaDia + '<div class="tt" id="tt" hidden></div>';
 }
 
 function renderAjustes() {
@@ -375,6 +585,7 @@ function renderAjustes() {
     ${S.papel === 'admin' ? `<div class="drop" id="drop" style="margin-top:14px"><b>Arraste a planilha aqui</b><span class="sub">Relatório de serviços do Avec (.xlsx) com Profissional, Data Comanda, Serviço, Categoria, Cliente, Celular e Total</span><label class="btn primary" for="fFile">Escolher arquivo</label><input type="file" id="fFile" accept=".xlsx,.xls,.csv" hidden></div>
     <p class="note">A planilha é lida no seu navegador e a base processada fica guardada no banco do salão. Toda a equipe passa a ver a nova base na hora.</p>` : ''}
   </section>
+  ${catalogoHtml()}
   <section class="card"><h2>Ajustes da equipe</h2>
     <div class="form-grid" style="margin-top:14px">
       <div class="field"><label for="cSalao">Nome do salão (usado nas mensagens)</label><input class="input" id="cSalao" value="${esc(S.cfg.salao)}" ${S.papel === 'admin' ? '' : 'disabled'}></div>
@@ -403,10 +614,10 @@ function bindView() {
   [['fSetor', 'setor'], ['fTipo', 'tipo'], ['fProf', 'prof'], ['fTicket', 'ticket']].forEach(([id, k]) => { const el = $('#' + id); if (el) el.onchange = () => setF(k, el.value); });
   const bl = $('#bLimpar'); if (bl) bl.onclick = () => { S.f = { setor: '', tipo: '', prof: '', ticket: '' }; S.cur = null; rebuildQueue(); render(); };
   document.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => { S.tab = b.dataset.tab; render(); });
-  document.querySelectorAll('[data-act]').forEach(b => b.onclick = () => { const a = b.dataset.act; if (a === 'naoatendeu' || a === 'errado' || a === 'mensagem' || a === 'javeio') registrar(a, {}); else { S.open = S.open === a ? null : a; render(); } });
+  document.querySelectorAll('[data-act]').forEach(b => b.onclick = () => { const a = b.dataset.act; if (a === 'naoatendeu' || a === 'errado' || a === 'mensagem' || a === 'javeio') registrar(a, {}); else { S.open = S.open === a ? null : a; if (a === 'agendou') S.pick = []; render(); } });
   document.querySelectorAll('[data-confirm]').forEach(b => b.onclick = () => {
     const a = b.dataset.confirm; const extra = { obs: ($('#fObs') || {}).value || '' };
-    if (a === 'agendou') extra.agDia = $('#fAgDia').value || '';
+    if (a === 'agendou') { extra.agDia = $('#fAgDia').value || ''; Object.assign(extra, vendaDoPicker()); }
     if (a === 'sem') extra.motivo = $('#fMotivo').value;
     if (a === 'retornar') { extra.ate = $('#fAte').value; if (!isoToDay(extra.ate)) { toast('Escolha a data para ligar de novo.'); return; } }
     registrar(a, extra);
@@ -426,6 +637,8 @@ function bindView() {
   const setR = (k, v) => { S.rf[k] = v; if (k === 'setor') S.rf.tipo = ''; render(); };
   [['rPer', 'periodo'], ['rDe', 'de'], ['rAte', 'ate'], ['rPor', 'por'], ['rSetor', 'setor'], ['rTipo', 'tipo']].forEach(([id, k]) => { const el = $('#' + id); if (el) el.onchange = () => setR(k, el.value); });
   const rl = $('#rLimpar'); if (rl) rl.onclick = () => { S.rf = { periodo: '7', de: '', ate: '', por: '', setor: '', tipo: '' }; render(); };
+  if (S.view === 'marcacoes') bindMarcacoes(); else bindPicker();
+  if (S.view === 'ajustes') bindCatalogo();
   const tt = $('#tt');
   if (tt) document.querySelectorAll('.stk-col').forEach(c => {
     c.onmouseenter = () => { tt.innerHTML = c.dataset.tip; tt.hidden = false; };
@@ -433,7 +646,7 @@ function bindView() {
     c.onmouseleave = () => { tt.hidden = true; };
   });
 }
-function go(v) { S.view = v; S.open = null; render(); window.scrollTo(0, 0); }
+function go(v) { S.view = v; S.open = null; S.mk.ed = null; S.pick = []; render(); window.scrollTo(0, 0); }
 function abrirCliente(k) {
   const o = S.byKey.get(k); if (!o) return;
   if (!o.trig) { toast(primeiroNome(o.c.nome) + ' está fora da fila: ' + FASES[o.fase].nome.toLowerCase() + '.'); return; }
@@ -471,20 +684,38 @@ function traduzErro(e) {
   if (/Email not confirmed/i.test(m)) return 'o e-mail ainda não foi confirmado.';
   return m || 'erro desconhecido.';
 }
+/* monta e grava uma marcação. modo 'novo' acrescenta ao histórico; 'corrigir' troca o último registro */
+function montarDoc(o, id, st, extra, modo) {
+  const prev = S.st.get(id) || null; const now = Date.now();
+  const ativo = o ? contatoAtivo(o) : prev;
+  const tent = st === 'naoatendeu' ? (modo === 'corrigir' && prev && prev.st === 'naoatendeu' ? (prev.tent || 1) : ((ativo && ativo.st === 'naoatendeu' && (ativo.tent || 1) < 3) ? (ativo.tent || 1) + 1 : 1)) : 0;
+  const venda = st === 'agendou' && extra.servicos ? { servicos: extra.servicos, valor: r2(extra.valor) } : {};
+  const quem = (S.atendente || S.membroNome || '').slice(0, 40);
+  const campos = { st, ...(extra.obs ? { obs: extra.obs.slice(0, 300) } : {}), ...(extra.motivo ? { motivo: extra.motivo } : {}), ...(st === 'naoatendeu' ? { tent } : {}), ...(extra.ate ? { ate: extra.ate } : {}), ...(extra.agDia ? { agDia: extra.agDia } : {}), ...venda };
+  let hist = [...((prev && prev.hist) || [])], at = now;
+  if (modo === 'corrigir' && hist.length) {
+    const ult = hist[hist.length - 1];
+    const base = { at: ult.at, por: ult.por, uid: ult.uid, nota: ult.nota, fase: ult.fase, fam: ult.fam, tk: ult.tk };
+    Object.keys(base).forEach(k => base[k] === undefined && delete base[k]);
+    hist[hist.length - 1] = { ...base, ...campos, ed: { em: now, por: quem, de: ult.st } };
+    at = prev.at || ult.at;
+  } else {
+    hist.push({ ...campos, at: now, por: quem, uid: S.user ? S.user.id : '', ...(o ? { nota: o.score, fase: o.fase } : {}), ...(o && o.trig ? { fam: o.trig.fam, tk: Math.round(o.trig.tk) } : {}) });
+  }
+  const doc = { st, at, first: prev && prev.first ? prev.first : at, tent, ate: extra.ate || '', agDia: extra.agDia || '', motivo: extra.motivo || '', obs: (extra.obs || '').slice(0, 300), ...venda, hist: hist.slice(-20) };
+  return { prev, doc, tent };
+}
+const TXT_ST = (st, extra, tent) => ({ agendou: 'Agendamento registrado' + (extra.valor ? ' · ' + fmtBRLc(extra.valor) : ''), sem: 'Registrado: sem interesse', naoatendeu: `Não atendeu (tentativa ${tent} de 3)`, retornar: 'Retorno marcado para ' + dayToStr(isoToDay(extra.ate)), errado: 'Número marcado como errado', mensagem: 'Mensagem enviada: volta à fila em 3 dias se não responder', javeio: 'Marcada como "já veio"' }[st]);
 async function registrar(st, extra) {
   const o = S.byKey.get(S.cur); if (!o) return;
-  const id = docId(o.c.k); const prev = S.st.get(id) || null; const now = Date.now();
-  const ativo = contatoAtivo(o);
-  const tent = st === 'naoatendeu' ? ((ativo && ativo.st === 'naoatendeu' && (ativo.tent || 1) < 3) ? (ativo.tent || 1) + 1 : 1) : 0;
-  const h = { st, at: now, ...(extra.obs ? { obs: extra.obs.slice(0, 300) } : {}), ...(extra.motivo ? { motivo: extra.motivo } : {}), ...(st === 'naoatendeu' ? { tent } : {}), por: (S.atendente || S.membroNome || '').slice(0, 40), uid: S.user ? S.user.id : '', nota: o.score, fase: o.fase, ...(o.trig ? { fam: o.trig.fam, tk: Math.round(o.trig.tk) } : {}) };
-  const doc = { st, at: now, first: prev && prev.first ? prev.first : now, tent, ate: extra.ate || '', agDia: extra.agDia || '', motivo: extra.motivo || '', obs: (extra.obs || '').slice(0, 300), hist: [...((prev && prev.hist) || []), h].slice(-20) };
+  const id = docId(o.c.k);
+  const { prev, doc, tent } = montarDoc(o, id, st, extra, 'novo');
   const i = S.queue.findIndex(x => x.c.k === o.c.k); const nxt = S.queue[i + 1];
-  S.open = null;
+  S.open = null; S.pick = [];
   const ok = await gravar(id, doc); if (!ok) { if (prev) S.st.set(id, prev); else S.st.delete(id); return; }
   rebuildQueue(); S.cur = nxt && S.queue.find(x => x.c.k === nxt.c.k) ? nxt.c.k : (S.queue[0] ? S.queue[0].c.k : null);
   render();
-  const txt = { agendou: 'Agendamento registrado', sem: 'Registrado: sem interesse', naoatendeu: `Não atendeu (tentativa ${tent} de 3)`, retornar: 'Retorno marcado para ' + dayToStr(isoToDay(extra.ate)), errado: 'Número marcado como errado', mensagem: 'Mensagem enviada: volta à fila em 3 dias se não responder', javeio: 'Marcada como "já veio"' }[st];
-  toast(txt + ' · ' + primeiroNome(o.c.nome), async () => { await gravar(id, prev); rebuildQueue(); S.cur = o.c.k; render(); });
+  toast(TXT_ST(st, extra, tent) + ' · ' + primeiroNome(o.c.nome), async () => { await gravar(id, prev); rebuildQueue(); S.cur = o.c.k; render(); });
 }
 
 /* ===== Planilha (só administradores) ===== */
@@ -515,6 +746,9 @@ function carregarArquivo(file) {
       const meta = { salao_id: S.salao, arquivo: file.name, linhas: rows.length, clientes: base.clients.length, max_day: base.maxDay, profs: base.profs, versao, carregado_em: new Date().toISOString(), carregado_por: S.user.id };
       const { error: e3 } = await S.sb.from('base_meta').upsert(meta);
       if (e3) throw new Error('Falha ao registrar a carga: ' + traduzErro(e3));
+      busy('Atualizando o catálogo de serviços…', `${base.servicos.length} serviços`);
+      try { await sincronizarCatalogo(base.servicos); } catch (e) { console.warn(e); }
+      delete base.servicos;
       S.versaoBase = versao;
       usarBase(base, { nome: file.name, at: Date.now(), rows: rows.length });
       await idbSet('base:' + S.salao, { versao, base, info: S.baseInfo });
@@ -586,6 +820,12 @@ function assinarTempoReal() {
     .on('postgres_changes', { event: '*', schema: 'public', table: 'base_meta', filter: f }, async p => {
       if (p.new && p.new.versao && p.new.versao !== S.versaoBase) { toast('Uma nova base foi carregada. Atualizando…'); try { await carregarBase(); render(); } catch (e) { toast('Não consegui baixar a nova base: ' + traduzErro(e)); } }
     })
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'servicos', filter: f }, p => {
+      const nome = (p.new && p.new.nome) || (p.old && p.old.nome); if (!nome) return;
+      const resto = S.servicos.filter(x => x.nome !== nome);
+      prepServicos(p.eventType === 'DELETE' ? resto : [...resto, p.new]);
+      if (S.view === 'ajustes' && !digitando()) render();
+    })
     .on('postgres_changes', { event: '*', schema: 'public', table: 'config', filter: f }, p => {
       if (p.new) { S.cfg = { salao: p.new.salao_nome, meta: p.new.meta, oferta: p.new.oferta }; if (S.view !== 'ajustes') render(); }
     })
@@ -615,6 +855,7 @@ async function entrarNoSistema(session) {
   try {
     await carregarConfig();
     await carregarContatos();
+    await carregarServicos();
     await carregarBase();
   } catch (e) { $('#toastHost').innerHTML = ''; toast('Erro ao carregar os dados: ' + traduzErro(e)); }
   render();

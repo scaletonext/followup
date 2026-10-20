@@ -93,7 +93,31 @@ function buildBase(rows) {
     clients.push({ k: c.k, nome: c.nome, cel: c.cel, v: days(c.v), f, pf, pt: top ? top[0] : '' });
   }
   const profs = {}; for (const p in profMax) profs[p] = Math.round(profMax[p] / DAY);
-  return { clients, profs, maxDay: Math.round(maxDate / DAY), rows: rows.length };
+  return { clients, profs, maxDay: Math.round(maxDate / DAY), rows: rows.length, servicos: buildCatalogo(rows, col, maxDate) };
+}
+
+/* Catálogo de serviços: preço praticado (mediana do valor unitário no último ano; sem uso no último ano, a mediana de todo o histórico) */
+function buildCatalogo(rows, col, maxDate) {
+  const qtdCol = Object.keys(rows[0] || {}).find(h => /^qtd/.test(norm(h)));
+  const m = new Map(); const ano = maxDate - 365 * DAY;
+  for (const r of rows) {
+    const nomeBruto = String(r[col.serv] || '').replace(/\s+/g, ' ').trim(); if (!nomeBruto) continue;
+    const d = parseDate(r[col.data]); if (d == null) continue;
+    const q = qtdCol ? (+r[qtdCol] || 1) : 1; const unit = (+r[col.tot] || 0) / (q > 0 ? q : 1);
+    const k = norm(nomeBruto);
+    let s = m.get(k); if (!s) { s = { grafias: {}, fam: famOf(r[col.serv], r[col.cat]), ano: [], tudo: [], vezes: 0, ult: 0 }; m.set(k, s); }
+    s.grafias[nomeBruto] = (s.grafias[nomeBruto] || 0) + 1;
+    if (unit > 0) { s.tudo.push(unit); if (d >= ano) s.ano.push(unit); }
+    if (d >= ano) s.vezes++;
+    if (d > s.ult) s.ult = d;
+  }
+  const out = [];
+  for (const s of m.values()) {
+    const precos = s.ano.length ? s.ano : s.tudo; if (!precos.length) continue;
+    const nome = Object.entries(s.grafias).sort((a, b) => b[1] - a[1])[0][0];
+    out.push({ nome, fam: s.fam, preco: Math.round(median(precos) * 100) / 100, vezes: s.vezes, ativo: s.vezes > 0 });
+  }
+  return out.sort((a, b) => b.vezes - a.vezes || a.nome.localeCompare(b.nome));
 }
 
 /* base + data de hoje -> clientes pontuados */

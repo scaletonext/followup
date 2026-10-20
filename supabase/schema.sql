@@ -68,6 +68,19 @@ create table if not exists public.config (
   oferta      text not null default ''
 );
 
+-- Catálogo de serviços com preço (gerado da planilha; o admin pode ajustar)
+create table if not exists public.servicos (
+  salao_id      uuid not null references public.saloes(id) on delete cascade,
+  nome          text not null,
+  fam           text not null default '',          -- tipo de serviço (mesma classificação da fila)
+  preco         numeric(10,2) not null default 0 check (preco >= 0),
+  vezes         integer not null default 0,        -- vendas no último ano da planilha
+  ativo         boolean not null default true,     -- vendido no último ano (ou ligado à mão)
+  editado       boolean not null default false,    -- preço mexido à mão: novas planilhas não sobrescrevem
+  atualizado_em timestamptz not null default now(),
+  primary key (salao_id, nome)
+);
+
 -- ---------------------------------------------------------------------
 -- Funções de apoio às regras de acesso
 -- ---------------------------------------------------------------------
@@ -90,6 +103,7 @@ alter table public.base_clientes enable row level security;
 alter table public.base_meta     enable row level security;
 alter table public.contatos      enable row level security;
 alter table public.config        enable row level security;
+alter table public.servicos      enable row level security;
 
 drop policy if exists saloes_ler on public.saloes;
 create policy saloes_ler on public.saloes for select to authenticated using (public.e_membro(id));
@@ -125,8 +139,15 @@ drop policy if exists config_gravar on public.config;
 create policy config_gravar on public.config for all to authenticated
   using (public.e_admin(salao_id)) with check (public.e_admin(salao_id));
 
+-- catálogo de serviços: toda a equipe lê; só admin muda
+drop policy if exists servicos_ler on public.servicos;
+create policy servicos_ler on public.servicos for select to authenticated using (public.e_membro(salao_id));
+drop policy if exists servicos_gravar on public.servicos;
+create policy servicos_gravar on public.servicos for all to authenticated
+  using (public.e_admin(salao_id)) with check (public.e_admin(salao_id));
+
 -- permissões básicas (o Supabase já costuma dar; repetir não faz mal)
-grant select, insert, update, delete on public.saloes, public.membros, public.base_clientes, public.base_meta, public.contatos, public.config to authenticated;
+grant select, insert, update, delete on public.saloes, public.membros, public.base_clientes, public.base_meta, public.contatos, public.config, public.servicos to authenticated;
 grant execute on function public.e_membro(uuid), public.e_admin(uuid) to authenticated;
 
 -- ---------------------------------------------------------------------
@@ -138,5 +159,6 @@ begin
     begin alter publication supabase_realtime add table public.contatos; exception when duplicate_object then null; end;
     begin alter publication supabase_realtime add table public.base_meta; exception when duplicate_object then null; end;
     begin alter publication supabase_realtime add table public.config;    exception when duplicate_object then null; end;
+    begin alter publication supabase_realtime add table public.servicos;  exception when duplicate_object then null; end;
   end if;
 end $$;
