@@ -3,7 +3,7 @@ const S = {
   base: null, demo: true, baseInfo: null, scored: [], byKey: new Map(),
   st: new Map(), // docId -> contato
   cfg: { salao: 'Visual Up', meta: 50, oferta: '' },
-  atendente: '', sb: null, user: null, salao: null, papel: '', membroNome: '', view: 'fila', lista: 'fila', f: { setor: '', tipo: '', prof: '', ticket: '' }, busca: '', listLimit: 100,
+  atendente: '', sb: null, user: null, salao: null, papel: '', membroNome: '', view: 'fila', lista: 'fila', rf: { periodo: '7', de: '', ate: '', por: '', setor: '', tipo: '' }, f: { setor: '', tipo: '', prof: '', ticket: '' }, busca: '', listLimit: 100,
   queue: [], cur: null, skipped: new Set(), tab: 'whats', open: null, lastUndo: null, today: 0,
 };
 const $ = s => document.querySelector(s);
@@ -75,6 +75,7 @@ function recompute() {
   S.today = todayDay();
   S.scored = scoreBase(S.base, S.today);
   S.byKey = new Map(S.scored.map(o => [o.c.k, o]));
+  S.byDoc = new Map(S.scored.map(o => [docId(o.c.k), o]));
   const cnt = {}; S.scored.forEach(o => { if (o.prof) cnt[o.prof] = (cnt[o.prof] || 0) + 1; });
   S.profs = Object.entries(cnt).map(([p, n]) => ({ p, n, ativa: (S.base.maxDay - ((S.base.profs || {})[p] || 0)) <= 90 })).sort((a, b) => b.n - a.n);
   rebuildQueue();
@@ -260,32 +261,104 @@ function renderLista() {
   ${total > S.listLimit ? `<div style="text-align:center"><button class="btn" id="bMore">Mostrar mais (${(total - S.listLimit).toLocaleString('pt-BR')} restantes)</button></div>` : ''}`;
 }
 
+/* ===== Resultados: dashboard por dia ===== */
+const ST_ORD = ['agendou', 'retornar', 'naoatendeu', 'sem', 'errado'];
+const ST_COR = { agendou: '#5FAF85', retornar: '#D98FA3', naoatendeu: '#E3B25E', sem: '#D46A5F', errado: '#B9AAAE' };
+function eventosContato() {
+  const out = [];
+  for (const [cid, s] of S.st) for (const h of (s.hist || [])) {
+    const o = S.byDoc && S.byDoc.get(cid);
+    const fam = h.fam || (o && o.trig ? o.trig.fam : '');
+    out.push({ ...h, cid, dia: msToDay(h.at), fam, setor: fam && FAMMETA[fam] ? FAMMETA[fam].g : '', tk: h.tk != null ? h.tk : (o && o.trig ? o.trig.tk : 0), por: h.por || 'Sem nome', o });
+  }
+  return out;
+}
+function periodoRF() {
+  const t = S.today, f = S.rf;
+  if (f.periodo === 'hoje') return [t, t];
+  if (f.periodo === '30') return [t - 29, t];
+  if (f.periodo === 'mes') { const d = new Date(t * DAY); return [Math.round(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1) / DAY), t]; }
+  if (f.periodo === 'tudo') return [null, t];
+  if (f.periodo === 'custom') { const a = isoToDay(f.de), b = isoToDay(f.ate); return [a != null ? a : t - 6, b != null ? b : t]; }
+  return [t - 6, t];
+}
 function renderResultados() {
-  const all = [...S.st.values()]; const hist = all.flatMap(s => s.hist || []);
-  const contatadas = all.length;
-  const agend = all.filter(s => (s.hist || []).some(h => h.st === 'agendou')).length;
-  let voltaram = 0; for (const o of S.scored) { const s = S.st.get(docId(o.c.k)); if (s && s.first && o.ult > msToDay(s.first)) voltaram++; }
-  const porSt = {}; hist.forEach(h => porSt[h.st] = (porSt[h.st] || 0) + 1);
-  const mot = {}; hist.filter(h => h.st === 'sem').forEach(h => mot[h.motivo || 'Outro'] = (mot[h.motivo || 'Outro'] || 0) + 1);
-  const dias = []; for (let i = 13; i >= 0; i--) dias.push(S.today - i);
-  const porDia = dias.map(d => hist.filter(h => msToDay(h.at) === d).length);
-  const mx = Math.max(1, ...porDia);
-  const bars = (obj, order) => { const ent = (order || Object.keys(obj)).map(k => [k, obj[k] || 0]); const m = Math.max(1, ...ent.map(e => e[1])); return ent.map(([k, v]) => `<div class="bar"><span>${esc(STNOME[k] || k)}</span><div class="track"><i style="width:${v / m * 100}%"></i></div><b class="num">${v}</b></div>`).join(''); };
-  const insat = mot['Insatisfeita com atendimento'] || 0;
-  return `<div class="head"><div><div class="eyebrow">Acompanhamento</div><h1>Resultados <em>dos contatos</em></h1><p class="sub">Tudo o que a equipe marcou na fila. Esses dados também servem para recalibrar a nota depois.</p></div></div>
-  ${demoBanner()}
-  ${insat ? `<div class="banner warn"><b>${insat} cliente${insat > 1 ? 's disseram' : ' disse'} que ficou insatisfeita com o atendimento.</b><span>Vale a gestão ligar pessoalmente.</span></div>` : ''}
-  <div class="kpis">
-    <div class="kpi"><span class="l">Clientes contatadas</span><span class="v num">${contatadas}</span><span class="h">${hist.length} contatos no total</span></div>
-    <div class="kpi"><span class="l">Agendaram</span><span class="v num">${agend}</span><span class="h">${contatadas ? Math.round(agend / contatadas * 100) + '% das contatadas' : '—'}</span></div>
-    <div class="kpi"><span class="l">Voltaram ao salão</span><span class="v num">${voltaram}</span><span class="h">visita registrada na base após o contato</span></div>
-    <div class="kpi"><span class="l">Retornos combinados</span><span class="v num">${all.filter(s => s.st === 'retornar').length}</span><span class="h">aguardando a data</span></div>
-  </div>
-  ${hist.length ? `<div class="grid2">
-    <section class="card"><h2>Contatos por dia</h2><p class="sub">Últimos 14 dias</p><div class="cols" role="img" aria-label="Contatos por dia nos últimos 14 dias">${dias.map((d, i) => `<div class="col"><span class="tip num">${porDia[i]}</span><i style="height:${porDia[i] / mx * 100}%" title="${dayToStr(d)}: ${porDia[i]} contatos"></i><small class="num">${dayToStr(d).slice(0, 2)}</small></div>`).join('')}</div></section>
-    <section class="card"><h2>Resultado dos contatos</h2><p class="sub">Todas as marcações</p><div class="bars" style="margin-top:14px">${bars(porSt, ['agendou', 'naoatendeu', 'retornar', 'sem', 'errado'])}</div></section>
-    <section class="card"><h2>Por que não quiseram</h2><p class="sub">Motivos de "sem interesse"</p><div class="bars" style="margin-top:14px">${Object.keys(mot).length ? bars(mot, MOTIVOS.filter(m => mot[m])) : '<span class="sub">Nenhum registro ainda.</span>'}</div></section>
-  </div>` : `<div class="card empty"><b>Nenhum contato registrado ainda</b>Assim que a equipe marcar os resultados na fila, os números aparecem aqui.</div>`}`;
+  const todos = eventosContato();
+  const f = S.rf; let [de, ate] = periodoRF();
+  if (de == null) de = todos.length ? Math.min(...todos.map(e => e.dia)) : S.today;
+  const ev = todos.filter(e => e.dia >= de && e.dia <= ate && (!f.por || e.por === f.por) && (!f.setor || e.setor === f.setor) && (!f.tipo || e.fam === f.tipo));
+  const pessoas = [...new Set(todos.map(e => e.por))].sort();
+  const tipos = f.setor ? Object.entries(FAMMETA).filter(([, m]) => m.g === f.setor && !m.semCiclo) : [];
+  const opt = (v, l, sel) => `<option value="${esc(v)}" ${sel ? 'selected' : ''}>${esc(l)}</option>`;
+  const filtros = `<div class="filters" role="group" aria-label="Filtros dos resultados">
+    <select class="select" id="rPer" aria-label="Período">${[['hoje', 'Hoje'], ['7', 'Últimos 7 dias'], ['30', 'Últimos 30 dias'], ['mes', 'Este mês'], ['tudo', 'Desde o início'], ['custom', 'Escolher datas']].map(([k, l]) => opt(k, l, f.periodo === k)).join('')}</select>
+    ${f.periodo === 'custom' ? `<input class="select" type="date" id="rDe" value="${esc(f.de || dayToIso(de))}" aria-label="De"><input class="select" type="date" id="rAte" value="${esc(f.ate || dayToIso(ate))}" aria-label="Até">` : ''}
+    <select class="select" id="rPor" aria-label="Quem fez o contato">${opt('', 'Toda a equipe', !f.por)}${pessoas.map(p => opt(p, p, f.por === p)).join('')}</select>
+    <select class="select" id="rSetor" aria-label="Setor">${opt('', 'Todos os setores', !f.setor)}${Object.entries(SETORES).map(([k, l]) => opt(k, l, f.setor === k)).join('')}</select>
+    <select class="select" id="rTipo" aria-label="Tipo de serviço" ${f.setor ? '' : 'disabled'}>${opt('', f.setor ? 'Todos os serviços' : 'Tipo de serviço (escolha o setor)', !f.tipo)}${tipos.map(([k, m]) => opt(k, m.nome, f.tipo === k)).join('')}</select>
+    ${(f.por || f.setor || f.tipo || f.periodo !== '7') ? '<button class="btn ghost" id="rLimpar">Limpar filtros</button>' : ''}
+  </div>`;
+  const head = `<div class="head"><div><div class="eyebrow">Acompanhamento</div><h1>Resultados <em>por dia</em></h1><p class="sub">${dayToStr(de)} a ${dayToStr(ate)} · tudo o que a equipe registrou na fila.</p></div></div>${demoBanner()}${filtros}`;
+  if (!ev.length) return head + `<div class="card empty"><b>${todos.length ? 'Nenhum contato com esses filtros' : 'Nenhum contato registrado ainda'}</b>${todos.length ? 'Mude o período ou limpe os filtros.' : 'Assim que a equipe marcar os resultados na fila, os números aparecem aqui.'}</div>`;
+
+  const conta = arr => { const c = { total: arr.length }; ST_ORD.forEach(k => c[k] = 0); arr.forEach(e => c[e.st] = (c[e.st] || 0) + 1); c.clientes = new Set(arr.map(e => e.cid)).size; c.atendeu = c.total - c.naoatendeu - c.errado; return c; };
+  const pct = (a, b) => b ? Math.round(a / b * 100) + '%' : '—';
+  const T = conta(ev);
+  const fat = ev.filter(e => e.st === 'agendou').reduce((sm, e) => sm + (e.tk || 0), 0);
+  const nDias = ate - de + 1, diasAtivos = new Set(ev.map(e => e.dia)).size;
+  const media = diasAtivos ? T.total / diasAtivos : 0, meta = +S.cfg.meta || 50;
+  let voltaram = 0; const vistos = new Set();
+  for (const e of ev) { if (vistos.has(e.cid)) continue; vistos.add(e.cid); if (e.o && e.o.ult > e.dia) voltaram++; }
+  const insat = ev.filter(e => e.st === 'sem' && e.motivo === 'Insatisfeita com atendimento').length;
+
+  const kpis = `<div class="kpis kpis6">
+    <div class="kpi"><span class="l">Contatos</span><span class="v num">${T.total.toLocaleString('pt-BR')}</span><span class="h">${T.clientes.toLocaleString('pt-BR')} clientes diferentes</span></div>
+    <div class="kpi"><span class="l">Agendamentos</span><span class="v num">${T.agendou}</span><span class="h">${pct(T.agendou, T.clientes)} das clientes contatadas</span></div>
+    <div class="kpi"><span class="l">Atenderam</span><span class="v num">${pct(T.atendeu, T.total)}</span><span class="h">${T.atendeu} de ${T.total} contatos</span></div>
+    <div class="kpi"><span class="l">Média por dia</span><span class="v num">${media.toFixed(media < 10 ? 1 : 0).replace('.', ',')}<small> / ${meta}</small></span><div class="meter"><i style="width:${Math.min(100, media / meta * 100)}%"></i></div></div>
+    <div class="kpi"><span class="l">Faturamento agendado</span><span class="v num">${fmtBRL(fat)}</span><span class="h">estimado pelo ticket do serviço</span></div>
+    <div class="kpi"><span class="l">Voltaram ao salão</span><span class="v num">${voltaram}</span><span class="h">visita na base após o contato</span></div>
+  </div>`;
+
+  // gráfico empilhado por dia
+  const ini = Math.max(de, ate - 61);
+  const dias = []; for (let d = ini; d <= ate; d++) dias.push(d);
+  const porDia = new Map(dias.map(d => [d, conta([])]));
+  ev.forEach(e => { const c = porDia.get(e.dia); if (c) { c.total++; c[e.st]++; } });
+  const mx = Math.max(1, ...[...porDia.values()].map(c => c.total));
+  const passo = dias.length > 31 ? 7 : dias.length > 14 ? 2 : 1;
+  const grafico = `<section class="card"><div class="card-head"><div><h2>Contatos por dia</h2><p class="sub">${dias.length < nDias ? 'Últimos 62 dias do período' : 'Cada barra é um dia, dividida pelo resultado'}</p></div>
+      <div class="legenda">${ST_ORD.map(k => `<span><i style="background:${ST_COR[k]}"></i>${STNOME[k]}</span>`).join('')}</div></div>
+    <div class="stk-wrap"><div class="stk" role="img" aria-label="Contatos por dia por resultado">${dias.map((d, i) => { const c = porDia.get(d); const tip = `${dayToStr(d)} · ${c.total} contatos` + ST_ORD.filter(k => c[k]).map(k => `<br>${STNOME[k]}: ${c[k]}`).join(''); return `<div class="stk-col" data-tip="${esc(tip)}"><span class="stk-v num">${c.total || ''}</span><div class="stk-bar" style="height:${c.total / mx * 100}%">${ST_ORD.filter(k => c[k]).map(k => `<i style="flex:${c[k]};background:${ST_COR[k]}"></i>`).join('')}</div><small class="num">${i % passo === 0 || i === dias.length - 1 ? dayToStr(d).slice(0, 5) : ''}</small></div>`; }).join('')}</div></div>
+  </section>`;
+
+  // tabela por dia
+  const linhasDia = [...porDia.entries()].filter(([, c]) => c.total).sort((a, b) => b[0] - a[0]);
+  const tabelaDia = `<section class="card"><h2>Dia a dia</h2><p class="sub">Só os dias com contato</p>
+    <div class="svc-wrap" style="margin-top:12px"><table class="svc"><thead><tr><th>Dia</th><th class="r">Contatos</th>${ST_ORD.map(k => `<th class="r">${STNOME[k]}</th>`).join('')}<th class="r">Taxa de agend.</th></tr></thead><tbody>
+    ${linhasDia.map(([d, c]) => `<tr><td><b>${DIAS[(d + 4) % 7].slice(0, 3)}, ${dayToStr(d).slice(0, 5)}</b></td><td class="r num">${c.total}</td>${ST_ORD.map(k => `<td class="r num">${c[k] || '—'}</td>`).join('')}<td class="r num">${pct(c.agendou, c.total)}</td></tr>`).join('')}
+    <tr class="tot"><td><b>Total</b></td><td class="r num"><b>${T.total}</b></td>${ST_ORD.map(k => `<td class="r num"><b>${T[k] || '—'}</b></td>`).join('')}<td class="r num"><b>${pct(T.agendou, T.total)}</b></td></tr>
+    </tbody></table></div></section>`;
+
+  // quebras: atendente, setor, faixa de nota, motivos
+  const grupo = (chave) => { const m = new Map(); ev.forEach(e => { const k = chave(e); if (!m.has(k)) m.set(k, []); m.get(k).push(e); }); return [...m.entries()].map(([k, arr]) => [k, conta(arr)]); };
+  const barras = (linhas, rotulo) => { const m = Math.max(1, ...linhas.map(([, c]) => c.total)); return `<div class="bars">${linhas.map(([k, c]) => `<div class="bar2"><span>${esc(rotulo(k))}</span><div class="track2"><i class="t" style="width:${c.total / m * 100}%"></i><i class="a" style="width:${c.agendou / m * 100}%"></i></div><b class="num">${c.agendou}<small>/${c.total}</small></b><em class="num">${pct(c.agendou, c.total)}</em></div>`).join('')}</div>`; };
+  const legBar = `<div class="legenda" style="margin-top:8px"><span><i style="background:var(--rosa200)"></i>Contatos</span><span><i style="background:${ST_COR.agendou}"></i>Agendamentos</span></div>`;
+  const porPessoa = grupo(e => e.por).sort((a, b) => b[1].total - a[1].total);
+  const porSetor = grupo(e => e.setor || '').sort((a, b) => b[1].total - a[1].total);
+  const faixa = e => e.nota == null ? '—' : e.nota >= 80 ? '80 a 100' : e.nota >= 60 ? '60 a 79' : e.nota >= 40 ? '40 a 59' : 'abaixo de 40';
+  const ordemF = ['80 a 100', '60 a 79', '40 a 59', 'abaixo de 40', '—'];
+  const porNota = grupo(faixa).sort((a, b) => ordemF.indexOf(a[0]) - ordemF.indexOf(b[0]));
+  const mot = {}; ev.filter(e => e.st === 'sem').forEach(e => mot[e.motivo || 'Outro'] = (mot[e.motivo || 'Outro'] || 0) + 1);
+  const motM = Math.max(1, ...Object.values(mot));
+  const quebras = `<div class="grid2">
+    <section class="card"><h2>Por pessoa da equipe</h2><p class="sub">Agendamentos sobre contatos</p>${legBar}<div style="margin-top:12px">${barras(porPessoa, k => k)}</div></section>
+    <section class="card"><h2>Por setor</h2><p class="sub">Setor do serviço que motivou a ligação</p>${legBar}<div style="margin-top:12px">${barras(porSetor, k => SETORES[k] || 'Sem setor')}</div></section>
+    <section class="card"><h2>Por faixa de nota</h2><p class="sub">Confere se a nota acerta: notas altas devem agendar mais</p>${legBar}<div style="margin-top:12px">${barras(porNota, k => 'Nota ' + k)}</div></section>
+    <section class="card"><h2>Por que não quiseram</h2><p class="sub">Motivos de "sem interesse"</p><div class="bars" style="margin-top:14px">${Object.keys(mot).length ? MOTIVOS.filter(m => mot[m]).map(m => `<div class="bar"><span>${esc(m)}</span><div class="track"><i style="width:${mot[m] / motM * 100}%"></i></div><b class="num">${mot[m]}</b></div>`).join('') : '<span class="sub">Nenhum registro no período.</span>'}</div></section>
+  </div>`;
+  const alerta = insat ? `<div class="banner warn"><b>${insat} cliente${insat > 1 ? 's disseram' : ' disse'} que ficou insatisfeita com o atendimento no período.</b><span>Vale a gestão ligar pessoalmente.</span></div>` : '';
+  return head + alerta + kpis + grafico + quebras + tabelaDia + '<div class="tt" id="tt" hidden></div>';
 }
 
 function renderAjustes() {
@@ -344,6 +417,15 @@ function bindView() {
   const ff = $('#fFile'); if (ff) ff.onchange = () => ff.files[0] && carregarArquivo(ff.files[0]);
   const dr = $('#drop'); if (dr) { dr.ondragover = e => { e.preventDefault(); dr.classList.add('over'); }; dr.ondragleave = () => dr.classList.remove('over'); dr.ondrop = e => { e.preventDefault(); dr.classList.remove('over'); const f = e.dataTransfer.files[0]; if (f) carregarArquivo(f); }; }
   const sc = $('#bSaveCfg'); if (sc) sc.onclick = salvarCfg;
+  const setR = (k, v) => { S.rf[k] = v; if (k === 'setor') S.rf.tipo = ''; render(); };
+  [['rPer', 'periodo'], ['rDe', 'de'], ['rAte', 'ate'], ['rPor', 'por'], ['rSetor', 'setor'], ['rTipo', 'tipo']].forEach(([id, k]) => { const el = $('#' + id); if (el) el.onchange = () => setR(k, el.value); });
+  const rl = $('#rLimpar'); if (rl) rl.onclick = () => { S.rf = { periodo: '7', de: '', ate: '', por: '', setor: '', tipo: '' }; render(); };
+  const tt = $('#tt');
+  if (tt) document.querySelectorAll('.stk-col').forEach(c => {
+    c.onmouseenter = () => { tt.innerHTML = c.dataset.tip; tt.hidden = false; };
+    c.onmousemove = e => { const w = tt.offsetWidth; tt.style.left = Math.min(window.innerWidth - w - 12, e.clientX + 14) + 'px'; tt.style.top = (e.clientY - 10) + 'px'; };
+    c.onmouseleave = () => { tt.hidden = true; };
+  });
 }
 function go(v) { S.view = v; S.open = null; render(); window.scrollTo(0, 0); }
 function abrirCliente(k) {
@@ -388,7 +470,7 @@ async function registrar(st, extra) {
   const id = docId(o.c.k); const prev = S.st.get(id) || null; const now = Date.now();
   const ativo = contatoAtivo(o);
   const tent = st === 'naoatendeu' ? ((ativo && ativo.st === 'naoatendeu' && (ativo.tent || 1) < 3) ? (ativo.tent || 1) + 1 : 1) : 0;
-  const h = { st, at: now, ...(extra.obs ? { obs: extra.obs.slice(0, 300) } : {}), ...(extra.motivo ? { motivo: extra.motivo } : {}), ...(st === 'naoatendeu' ? { tent } : {}), ...(S.atendente ? { por: S.atendente.slice(0, 40) } : {}), nota: o.score, fase: o.fase };
+  const h = { st, at: now, ...(extra.obs ? { obs: extra.obs.slice(0, 300) } : {}), ...(extra.motivo ? { motivo: extra.motivo } : {}), ...(st === 'naoatendeu' ? { tent } : {}), por: (S.atendente || S.membroNome || '').slice(0, 40), uid: S.user ? S.user.id : '', nota: o.score, fase: o.fase, ...(o.trig ? { fam: o.trig.fam, tk: Math.round(o.trig.tk) } : {}) };
   const doc = { st, at: now, first: prev && prev.first ? prev.first : now, tent, ate: extra.ate || '', agDia: extra.agDia || '', motivo: extra.motivo || '', obs: (extra.obs || '').slice(0, 300), hist: [...((prev && prev.hist) || []), h].slice(-20) };
   const i = S.queue.findIndex(x => x.c.k === o.c.k); const nxt = S.queue[i + 1];
   S.open = null;
