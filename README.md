@@ -24,10 +24,8 @@ Sistema que monta a fila de contatos de retorno de um salão a partir da exporta
 ### 2. Vercel: publicar o site
 
 1. Entre em [vercel.com](https://vercel.com) → **Add New → Project** → importe o repositório **scaletonext/followup** do GitHub.
-2. Em **Environment Variables**, adicione:
-   - `SUPABASE_URL`: a Project URL do passo 1.6
-   - `SUPABASE_ANON_KEY`: a chave anon public do passo 1.6
-3. Clique em **Deploy**. O `vercel.json` já define o build (`node scripts/build.mjs`) e a pasta de saída (`dist`).
+2. Ligue as chaves. O jeito mais fácil é pelo Supabase, em **Project Settings → Integrations → Vercel → Install Vercel integration**: escolha "Link Existing Supabase Account" e dê acesso só ao projeto followup. A integração cria sozinha `SUPABASE_URL` e `SUPABASE_ANON_KEY` na Vercel. Se preferir fazer à mão, crie essas duas variáveis com a Project URL e a chave anon public do passo 1.6.
+3. Clique em **Deploy**, ou em **Redeploy** se o projeto já existia. O `vercel.json` já define o build (`node scripts/build.mjs`) e a pasta de saída (`dist`).
 4. Copie o endereço gerado (por exemplo, `followup-xxx.vercel.app`) e cole no Supabase em **Authentication → URL Configuration → Site URL**.
 
 ### 3. Primeiro uso
@@ -73,6 +71,11 @@ Para atualizar a base, o admin sobe uma planilha nova. Os navegadores abertos re
 Um serviço só conta como vencido depois do ritmo da cliente mais uma folga de 7 dias ou 20%, o que for maior. Um serviço que ela parou de fazer aqui, mesmo continuando a vir ao salão, não vira motivo de ligação.
 
 ---
+
+## No ar
+
+- Site: https://followup-eta-pied.vercel.app
+- Banco: projeto Supabase **followup**
 
 ## Rodar localmente
 
