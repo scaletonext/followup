@@ -507,15 +507,19 @@ function assinarTempoReal() {
       $('#syncTxt').textContent = ok ? 'Conectado, em tempo real' : 'Reconectando…';
     });
 }
-function telaLogin(msg) {
+const comPrazo = (p, ms) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error('A conexão demorou demais. Recarregue a página e tente de novo.')), ms))]);
+function telaLogin(msg, semAcesso) {
   $('#app').hidden = true; $('#login').hidden = false;
   $('#loginMsg').textContent = msg || ''; $('#loginMsg').hidden = !msg;
+  // logado, mas sem salão: em vez do formulário, oferece tentar de novo ou sair
+  $('#loginForm').hidden = !!semAcesso;
+  $('#semAcesso').hidden = !semAcesso;
 }
 async function entrarNoSistema(session) {
   S.user = session.user;
   const { data: mb, error } = await S.sb.from('membros').select('salao_id,nome,papel,saloes(nome)').eq('user_id', S.user.id);
   if (error) { telaLogin('Não consegui verificar seu acesso: ' + traduzErro(error)); return; }
-  if (!mb || !mb.length) { telaLogin('Seu usuário ainda não tem acesso a nenhum salão. Peça a um administrador para liberar.'); return; }
+  if (!mb || !mb.length) { telaLogin('Seu usuário (' + (S.user.email || '') + ') ainda não tem acesso a nenhum salão. Peça a um administrador para liberar e clique em "Tentar de novo".', true); return; }
   const m = mb[0];
   S.salao = m.salao_id; S.papel = m.papel; S.membroNome = m.nome || ''; S.salaoNome = (m.saloes && m.saloes.nome) || '';
   S.atendente = ls.get('atendente:' + S.user.id, '');
@@ -539,12 +543,17 @@ async function entrarNoSistema(session) {
   $('#loginForm').onsubmit = async e => {
     e.preventDefault();
     const btn = $('#loginBtn'); btn.disabled = true; btn.textContent = 'Entrando…';
-    const { data, error } = await S.sb.auth.signInWithPassword({ email: $('#lEmail').value.trim(), password: $('#lSenha').value });
+    let res;
+    try { res = await comPrazo(S.sb.auth.signInWithPassword({ email: $('#lEmail').value.trim(), password: $('#lSenha').value }), 20000); }
+    catch (err) { res = { error: err }; }
     btn.disabled = false; btn.textContent = 'Entrar';
-    if (error) { $('#loginMsg').textContent = 'Não foi possível entrar: ' + traduzErro(error); $('#loginMsg').hidden = false; return; }
-    entrarNoSistema(data.session);
+    if (res.error) { $('#loginMsg').textContent = 'Não foi possível entrar: ' + traduzErro(res.error); $('#loginMsg').hidden = false; return; }
+    entrarNoSistema(res.data.session);
   };
-  $('#bSair').onclick = async () => { await S.sb.auth.signOut(); location.reload(); };
-  const { data } = await S.sb.auth.getSession();
+  const sair = async () => { try { await comPrazo(S.sb.auth.signOut(), 8000); } catch (e) {} location.reload(); };
+  $('#bSair').onclick = sair; $('#bSair2').onclick = sair;
+  $('#bTentar').onclick = () => location.reload();
+  let data = {};
+  try { ({ data } = await comPrazo(S.sb.auth.getSession(), 15000)); } catch (e) { telaLogin(e.message); return; }
   if (data.session) entrarNoSistema(data.session); else telaLogin();
 })();

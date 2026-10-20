@@ -254,6 +254,7 @@ td.r,th.r{text-align:right}
 .login-grad{margin:0 -28px;padding:18px 28px;background:var(--grad)}
 .login-grad h1{font-size:26px}
 .login-msg{max-width:400px;text-align:center;color:var(--bad);background:var(--bad-bg);border-radius:var(--r-sm);padding:10px 14px;font-size:14px;margin:0}
+.login-acoes{display:flex;gap:10px;flex-wrap:wrap;justify-content:center}
 .who{display:flex;align-items:center;justify-content:space-between;gap:8px;color:var(--fg2);font-weight:600}
 </style>
 </head>
@@ -267,6 +268,7 @@ td.r,th.r{text-align:right}
     <button class="btn primary" id="loginBtn" type="submit" style="justify-content:center">Entrar</button>
   </form>
   <p class="login-msg" id="loginMsg" role="alert" hidden></p>
+  <div class="login-acoes" id="semAcesso" hidden><button class="btn primary" id="bTentar" type="button">Tentar de novo</button><button class="btn" id="bSair2" type="button">Sair e entrar com outro usuário</button></div>
 </div>
 <div class="app" id="app" hidden>
   <aside class="side">
