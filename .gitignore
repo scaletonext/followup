@@ -1,0 +1,9 @@
+node_modules/
+dist/
+.vercel/
+.env
+.env.*
+*.xlsx
+*.xls
+*.csv
+.DS_Store

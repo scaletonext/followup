@@ -1,0 +1,13 @@
+{
+  "name": "followup",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Follow-up de clientes para salões: fila de retorno por nota, mensagens e roteiro de ligação.",
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
